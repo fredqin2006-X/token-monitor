@@ -16,10 +16,9 @@ import { useLimitAlertPrefs } from "../hooks/use-limit-alert-prefs";
 import { sendPredictiveLimitAlerts } from "../lib/limit-alerts.js";
 import { isNativeEmbed, postNativeMessage } from "../lib/native-bridge.js";
 import { listSubscriptions } from "../lib/subscription-manager-api";
+import { isLocalDashboardHost } from "../lib/host-mode";
 
-const IS_LOCAL_HOST =
-  typeof window !== "undefined" &&
-  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+const IS_LOCAL_HOST = isLocalDashboardHost();
 
 const MACOS_NOTIFICATION_SETTINGS_URL = "x-apple.systempreferences:com.apple.preference.notifications";
 

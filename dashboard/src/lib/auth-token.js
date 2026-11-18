@@ -1,3 +1,5 @@
+import { isLocalDashboardHost } from "./host-mode";
+
 export function normalizeAccessToken(token) {
   if (typeof token !== "string") return null;
   const trimmed = token.trim();
@@ -103,8 +105,7 @@ export async function resolveAuthAccessTokenWithRetry(auth, options = {}) {
 
 export function isAccessTokenReady(token) {
   // 本地开发模式不需要真实 token
-  if (typeof window !== "undefined" &&
-      (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")) {
+  if (isLocalDashboardHost()) {
     return true;
   }
   if (typeof token === "function") return true;

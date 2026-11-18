@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isAccessTokenReady, resolveAuthAccessToken } from "../lib/auth-token";
+import { isLocalDashboardHost } from "../lib/host-mode";
 import { formatDateLocal, formatDateUTC } from "../lib/date-range";
 import { isMockEnabled } from "../lib/mock-data";
 import { getLocalDayKey, getTimeZoneCacheKey } from "../lib/timezone";
@@ -114,8 +115,7 @@ export function useUsageData({
     }
   }, [storageKey]);
 
-  const isLocalMode = typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+  const isLocalMode = isLocalDashboardHost();
 
   const beginRequest = useLatestRequestGuard([
     baseUrl,
@@ -343,10 +343,8 @@ export function useUsageData({
       setLoading(true);
       return;
     }
-    const isLocalMode = typeof window !== "undefined" &&
-      (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
-    const isLocalModeCheck = typeof window !== "undefined" &&
-      (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+    const isLocalMode = isLocalDashboardHost();
+    const isLocalModeCheck = isLocalMode;
     if (!tokenReady && !guestAllowed && !mockEnabled && !isLocalModeCheck && !useCloud) {
       setDaily([]);
       setSummary(null);

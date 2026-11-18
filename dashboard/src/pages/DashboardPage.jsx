@@ -26,6 +26,7 @@ import {
 } from "../lib/format";
 import { formatSummaryCost } from "../lib/summary-cost";
 import { shouldShowInstallCard } from "../lib/install-status";
+import { isLocalDashboardHost } from "../lib/host-mode";
 import { getMockNow, isMockEnabled } from "../lib/mock-data";
 import { publishUsageLimitsPreloadState } from "../lib/dashboard-preload.js";
 import { startLocalUsageAutoRefresh } from "../lib/local-usage-auto-refresh";
@@ -268,8 +269,7 @@ export function DashboardPage({
   ]);
 
   // 本地模式判断
-  const isLocalMode = typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+  const isLocalMode = isLocalDashboardHost();
 
   useEffect(() => {
     // 本地模式：跳过登录检查，直接获取 userStatus

@@ -5,6 +5,7 @@ import {
   getHeatmapRangeLocal,
 } from "../lib/activity-heatmap";
 import { isAccessTokenReady, resolveAuthAccessToken } from "../lib/auth-token";
+import { isLocalDashboardHost } from "../lib/host-mode";
 import { isMockEnabled } from "../lib/mock-data";
 import { getTimeZoneCacheKey } from "../lib/timezone";
 import {
@@ -45,8 +46,7 @@ export function useActivityHeatmap({
   const tokenReady = isAccessTokenReady(accessToken);
   const cacheAllowed = !guestAllowed;
 
-  const isLocalMode = typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+  const isLocalMode = isLocalDashboardHost();
 
   // A manual refresh, visibility refresh, and a scope/range change can all
   // overlap.  Heatmap responses are often considerably slower than the other

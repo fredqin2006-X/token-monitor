@@ -7,6 +7,7 @@ import { ThemeProvider } from "./ui/foundation/ThemeProvider.jsx";
 import { useInsforgeAuth } from "./contexts/InsforgeAuthContext.jsx";
 import { LoginModalProvider } from "./contexts/LoginModalContext.jsx";
 import { getBackendBaseUrl, getLeaderboardBaseUrl } from "./lib/config";
+import { isLocalDashboardHost } from "./lib/host-mode";
 import { isMockEnabled } from "./lib/mock-mode";
 import { isScreenshotModeEnabled } from "./lib/screenshot-mode";
 import { useCloudUsageSync } from "./hooks/use-cloud-usage-sync";
@@ -105,6 +106,9 @@ const SkillsPage = lazy(() =>
 const SessionsPage = lazy(() =>
   import("./pages/SessionsPage.jsx").then((m) => ({ default: m.SessionsPage })),
 );
+const RatePage = lazy(() =>
+  import("./pages/RatePage.jsx").then((m) => ({ default: m.RatePage })),
+);
 const WidgetsPage = lazy(() =>
   import("./pages/WidgetsPage.jsx").then((m) => ({ default: m.WidgetsPage })),
 );
@@ -149,9 +153,7 @@ export default function App() {
     sharePathname === "/share.html" ||
     sharePathname.startsWith("/share/");
 
-  const isLocalMode =
-    typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+  const isLocalMode = isLocalDashboardHost();
 
   const normalizedPath = pathname.replace(/\/+$/, "") || "/";
   useEffect(() => {
@@ -251,12 +253,13 @@ export default function App() {
   const isSelfHostPath = normalizedPath === "/self-host";
   const isSkillsPath = normalizedPath === "/skills";
   const isSessionsPath = normalizedPath === "/sessions";
+  const isRatePath = normalizedPath === "/rate";
   const isWidgetsPath = normalizedPath === "/widgets";
   const isPetPath = normalizedPath === "/pet-settings";
   const isIpCheckPath = normalizedPath === "/ip-check";
   const isServiceStatusPath = normalizedPath === "/service-status";
   const isAchievementsPath = normalizedPath === "/achievements";
-  if (isLimitsPath || isSettingsPath || isCloudPath || isCheckoutPath || isSelfHostPath || isSkillsPath || isSessionsPath || isWidgetsPath || isPetPath || isIpCheckPath || isServiceStatusPath || isAchievementsPath) gate = "dashboard";
+  if (isLimitsPath || isSettingsPath || isCloudPath || isCheckoutPath || isSelfHostPath || isSkillsPath || isSessionsPath || isRatePath || isWidgetsPath || isPetPath || isIpCheckPath || isServiceStatusPath || isAchievementsPath) gate = "dashboard";
 
   let PageComponent = DashboardPage;
   if (profileUserId) {
@@ -277,6 +280,8 @@ export default function App() {
     PageComponent = SkillsPage;
   } else if (isSessionsPath) {
     PageComponent = SessionsPage;
+  } else if (isRatePath) {
+    PageComponent = RatePage;
   } else if (isWidgetsPath) {
     PageComponent = WidgetsPage;
   } else if (isPetPath) {
@@ -302,6 +307,7 @@ export default function App() {
       isSelfHostPath ||
       isSkillsPath ||
       isSessionsPath ||
+      isRatePath ||
       isWidgetsPath ||
       isPetPath ||
       isIpCheckPath ||

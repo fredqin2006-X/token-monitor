@@ -830,12 +830,19 @@ function isLoopbackHostname(hostname) {
   return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1" || hostname === "[::1]";
 }
 
-function hasAllowedLoopbackOrigin(headers = {}) {
+function hasAllowedLoopbackOrigin(headers = {}, env = process.env) {
+  const allowedOrigins = new Set(
+    String(env?.TOKENTRACKER_ALLOWED_ORIGINS || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  );
   const candidates = [headers.origin, headers.referer];
   for (const raw of candidates) {
     if (raw == null || raw === "") continue;
     try {
       const url = new URL(String(raw));
+      if (allowedOrigins.has(url.origin)) continue;
       if (url.protocol !== "http:" || !isLoopbackHostname(url.hostname)) return false;
     } catch (_e) {
       return false;
@@ -1944,9 +1951,20 @@ function createLocalApiHandler({ queuePath, serverVersion = null, trackerDataDir
     }
     if (p === "/api/runtime-config.js") {
       if (String(req.method).toUpperCase() !== "GET") { json(res, { error: "Method Not Allowed" }, 405); return true; }
+      const localHosts = Array.from(new Set(
+        String(process.env.TOKENTRACKER_ALLOWED_ORIGINS || "")
+          .split(",")
+          .map((raw) => {
+            const trimmed = raw.trim();
+            if (!trimmed) return "";
+            try { return new URL(trimmed).hostname; } catch { return trimmed; }
+          })
+          .filter(Boolean),
+      ));
       const descriptor = { baseUrl: normalizeInstanceBaseUrl(selectedRuntime.baseUrl) || "",
         anonKey: selectedRuntime.configurationError ? null : selectedRuntime.anonKey,
-        dashboardUrl: normalizeInstanceBaseUrl(selectedRuntime.dashboardUrl) || "", configurationError: selectedRuntime.configurationError };
+        dashboardUrl: normalizeInstanceBaseUrl(selectedRuntime.dashboardUrl) || "", configurationError: selectedRuntime.configurationError,
+        ...(localHosts.length > 0 ? { localHosts } : {}) };
       const value = JSON.stringify(descriptor).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
       res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
       res.end(`window.__TOKENTRACKER_RUNTIME_CONFIG__=${value};`);
@@ -4104,6 +4122,36 @@ function createLocalApiHandler({ queuePath, serverVersion = null, trackerDataDir
           forceRefresh,
           devinEnabled,
           hiddenProviders,
+        });
+        json(res, data);
+      } catch (e) {
+        json(res, { error: e?.message || "Unknown error" }, 500);
+      }
+      return true;
+    }
+
+    // --- token-rate (live project & session token speed monitor) ---
+    if (p === "/functions/tokentracker-token-rate") {
+      const { computeProjectTokenRates } = require("./token-rate");
+      try {
+        await ensurePricingLoaded();
+        const refreshParam = url.searchParams.get("refresh");
+        const refresh = refreshParam === "1" || refreshParam === "true";
+        const activeMinutesParam = Number(url.searchParams.get("active_minutes"));
+        const activeWindowMinutes = Number.isFinite(activeMinutesParam) && activeMinutesParam > 0
+          ? Math.min(Math.max(1, Math.round(activeMinutesParam)), 1440)
+          : 15;
+        const recentMinutesParam = Number(url.searchParams.get("recent_minutes"));
+        const recentWindowMinutes = Number.isFinite(recentMinutesParam) && recentMinutesParam > 0
+          ? Math.min(Math.max(activeWindowMinutes, Math.round(recentMinutesParam)), 10080)
+          : 1440;
+        res.setHeader("Cache-Control", "no-store");
+        const data = await computeProjectTokenRates({
+          home: os.homedir(),
+          env: process.env,
+          activeWindowMinutes,
+          recentWindowMinutes,
+          refresh,
         });
         json(res, data);
       } catch (e) {

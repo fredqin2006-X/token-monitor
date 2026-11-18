@@ -43,6 +43,12 @@ const { discoverOmpSessionFiles, ompSessionDependencies, readOmpSessions } = req
 const { discoverPiSessionFiles, piSessionDependencies, piSessionProbe, digestIssues, readPiSessions } = require("./pi-session");
 const { discoverDshSessionFiles, readDshSessions } = require("./dsh-session");
 const {
+  scanCodebuddySessionFile,
+  scanAntigravitySessionFile,
+  discoverCodebuddyJsonlFiles,
+  discoverAntigravityTranscriptFiles,
+} = require("./token-rate");
+const {
   appendUniqueDirs,
   dedupeDirsByRealpath,
   expandHome,
@@ -2087,6 +2093,48 @@ async function scanDshSession(filePath) {
   return rows[0] || null;
 }
 
+async function scanCodebuddySession(filePath, opts = {}) {
+  const target = Array.isArray(filePath) ? filePath[0] : filePath;
+  const scanned = await scanCodebuddySessionFile(target, opts);
+  if (!scanned) return null;
+  const {
+    rate_samples: _rateSamples,
+    pid: _pid,
+    process_alive: _processAlive,
+    heartbeat_ms: _heartbeatMs,
+    last_record_type: _lastRecordType,
+    last_record_role: _lastRecordRole,
+    file_mtime_ms: _fileMtimeMs,
+    ...rest
+  } = scanned;
+  return finalizeRecord({
+    ...rest,
+    version: SIDECAR_VERSION,
+    ...sessionStorageUsage([target].filter(Boolean)),
+  });
+}
+
+async function scanAntigravitySession(filePath, opts = {}) {
+  const target = Array.isArray(filePath) ? filePath[0] : filePath;
+  const scanned = await scanAntigravitySessionFile(target, opts);
+  if (!scanned) return null;
+  const {
+    rate_samples: _rateSamples,
+    run_status: _runStatus,
+    not_fully_idle: _notFullyIdle,
+    killed: _killed,
+    last_step_type: _lastStepType,
+    last_step_status: _lastStepStatus,
+    file_mtime_ms: _fileMtimeMs,
+    ...rest
+  } = scanned;
+  return finalizeRecord({
+    ...rest,
+    version: SIDECAR_VERSION,
+    ...sessionStorageUsage([target].filter(Boolean)),
+  });
+}
+
 async function discoverSessionFiles(home, env = process.env, deps = {}) {
   const grokHome = resolveGrokHome(home);
   // config.scanRoots (#657): read from the tracker config unless the caller
@@ -2207,7 +2255,17 @@ async function discoverSessionFiles(home, env = process.env, deps = {}) {
     ? { ...env, HOME: home }
     : { HOME: home, TOKENTRACKER_PI_AGENT_DIR: path.join(home, ".pi", "agent") };
   const pi = discoverPiSessionFiles(piEnv, incomplete);
-  return { claude, codex: groupCodexFiles([...codex, ...archived]), grok, zcode, opencode, kimi, omp, dsh, pi, incomplete };
+  const { jsonlFiles: codebuddy } = discoverCodebuddyJsonlFiles({
+    home,
+    env,
+    homedir: deps.homedir || os.homedir,
+  });
+  const antigravity = await discoverAntigravityTranscriptFiles({
+    home,
+    env,
+    homedir: deps.homedir || os.homedir,
+  });
+  return { claude, codex: groupCodexFiles([...codex, ...archived]), grok, zcode, opencode, kimi, omp, dsh, pi, codebuddy, antigravity, incomplete };
 }
 
 // Warn once per unreadable directory per process: the dashboard polls this
@@ -2342,6 +2400,17 @@ function analyticsEntryStatKey(source, filePath) {
     return `${sessionStat}|sidecars:${filePaths.map((filePath) =>
       `wal:${sessionFileStatKey(`${filePath}-wal`) || "missing"}|shm:${sessionFileStatKey(`${filePath}-shm`) || "missing"}`).join("|")}`;
   }
+  if (source === "antigravity") {
+    const primary = filePaths[0];
+    const m = String(primary || "").match(/^(.*)[/\\]brain[/\\]([^/\\]+)[/\\]\.system_generated/);
+    if (m) {
+      const rootDir = m[1];
+      const convId = m[2];
+      const convDb = path.join(rootDir, "conversations", `${convId}.db`);
+      const sumDb = path.join(rootDir, "conversation_summaries.db");
+      return `${sessionStat}|db:${sessionFileStatKey(convDb) || "missing"}|wal:${sessionFileStatKey(`${convDb}-wal`) || "missing"}|sum:${sessionFileStatKey(sumDb) || "missing"}|sumwal:${sessionFileStatKey(`${sumDb}-wal`) || "missing"}`;
+    }
+  }
   return sessionStat;
 }
 
@@ -2470,6 +2539,8 @@ async function buildSessionAnalyticsInternal({ home = os.homedir(), force = fals
     ...discovered.grok,
     ...discovered.grok.map(grokSummaryPathFor),
     ...discovered.grok.map(grokSignalsPathFor),
+    ...(discovered.codebuddy || []),
+    ...(discovered.antigravity || []),
     // db + its WAL sidecars: the trio is one logical file for change detection.
     ...[...(discovered.zcode || []), ...(discovered.opencode || [])].flatMap((dbPath) => [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]),
   ]);
@@ -2511,6 +2582,8 @@ async function buildSessionAnalyticsInternal({ home = os.homedir(), force = fals
     ...(discovered.omp.length ? [{ source: "omp", filePath: discovered.omp, scan: scanOmpSessions }] : []),
     ...(discovered.dsh.length ? [{ source: "dsh", filePath: discovered.dsh, scan: scanDshSessions }] : []),
     ...(discovered.pi.length ? [{ source: "pi", filePath: discovered.pi, scan: scanPiSessions }] : []),
+    ...(discovered.codebuddy || []).map((filePath) => ({ source: "codebuddy", filePath, scan: scanCodebuddySession })),
+    ...(discovered.antigravity || []).map((filePath) => ({ source: "antigravity", filePath, scan: scanAntigravitySession })),
   ];
   // Files we could not turn into a row (permission denied, half-written line,
   // vanished mid-scan). Swallowing these silently made sessions disappear with
@@ -2979,6 +3052,7 @@ function resumeCommandFor(source, sessionId) {
   // pi: `--session` accepts a full or partial session id, unlike `--resume`,
   // which opens an interactive picker and so is not copy-paste resumable.
   if (source === "pi") return `pi --session ${id}`;
+  if (source === "codebuddy") return `codebuddy --resume ${id}`;
   return null;
 }
 
@@ -3373,6 +3447,8 @@ module.exports = {
   scanDshSession,
   scanPiSessions,
   scanPiSession,
+  scanCodebuddySession,
+  scanAntigravitySession,
   buildSessionAnalytics,
   summarizeSessions,
   listSessionsForBrowser,

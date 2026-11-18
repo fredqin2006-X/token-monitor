@@ -11,6 +11,7 @@ const LABELS = {
   "nav.group.account": "Account",
   "nav.usage": "Usage",
   "nav.sessions": "Sessions",
+  "nav.rate": "Rate",
   "nav.limits": "Limits",
   "nav.leaderboard": "Leaderboard",
   "nav.achievements": "Achievements",

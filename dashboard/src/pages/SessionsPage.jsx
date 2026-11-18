@@ -44,6 +44,8 @@ const SOURCE_FILTERS = [
   { id: "omp", label: () => "oh-my-pi" },
   { id: "dsh", label: () => copy("provider.display.deepseek_harness") },
   { id: "pi", label: () => copy("provider.display.pi") },
+  { id: "codebuddy", label: () => "CodeBuddy" },
+  { id: "antigravity", label: () => "Antigravity" },
 ];
 
 const DATE_RANGES = [

@@ -6,7 +6,7 @@ import { getBrowserTimeZone, getBrowserTimeZoneOffsetMinutes } from "./timezone"
 
 const SLUG = "tokentracker-sessions";
 
-export type SessionSource = "claude" | "codex" | "grok" | "zcode" | "opencode" | "kimi" | "omp" | "dsh" | "pi";
+export type SessionSource = "claude" | "codex" | "grok" | "zcode" | "opencode" | "kimi" | "omp" | "dsh" | "pi" | "codebuddy" | "antigravity";
 
 export interface SessionPerformance {
   estimated_output_tokens: number;

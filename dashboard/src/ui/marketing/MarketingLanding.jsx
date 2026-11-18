@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { cn } from "../../lib/cn";
-import { getDashboardEntryPath } from "../../lib/host-mode";
+import { getDashboardEntryPath, isLocalDashboardHost } from "../../lib/host-mode";
 import { HeaderGithubStar } from "../components/HeaderGithubStar.jsx";
 import { InsforgeUserHeaderControls } from "../../components/InsforgeUserHeaderControls.jsx";
 import { useInsforgeAuth } from "../../contexts/InsforgeAuthContext.jsx";
@@ -47,9 +47,7 @@ export function MarketingLanding({
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const isLocalMode =
-    typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+  const isLocalMode = isLocalDashboardHost();
   const { signedIn, loading: authLoading } = useInsforgeAuth();
   const { openLoginModal } = useLoginModal();
 

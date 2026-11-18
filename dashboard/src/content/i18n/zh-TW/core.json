@@ -850,5 +850,6 @@
   "settings.local_data.error.too_many_devices": "已達匯入資料上限，請先移除不再需要的來源。",
   "settings.local_data.error.unknown_device": "此匯入來源已不存在。",
   "settings.local_data.error.transfer_failed": "操作失敗，請檢查檔案與本機應用程式後重試。",
-  "settings.local_data.local_history_only": "離線快照不含工作階段記錄。內容分解需選擇「本機」查看；專案、工作階段和成效分析始終只包含本機記錄。"
+  "settings.local_data.local_history_only": "離線快照不含工作階段記錄。內容分解需選擇「本機」查看；專案、工作階段和成效分析始終只包含本機記錄。",
+  "nav.rate": "速率"
 }

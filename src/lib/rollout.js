@@ -23141,6 +23141,21 @@ function findAntigravityProtoFields(buf) {
   return fields;
 }
 
+function extractAntigravityProtoDurationMs(buf) {
+  if (!Buffer.isBuffer(buf)) return null;
+  try {
+    const fields = findAntigravityProtoFields(buf);
+    const secVal = fields.find((f) => f.num === 1)?.val;
+    const nanoVal = fields.find((f) => f.num === 2)?.val;
+    const seconds = Number.isSafeInteger(secVal) && secVal >= 0 ? secVal : 0;
+    const nanos = Number.isSafeInteger(nanoVal) && nanoVal >= 0 ? nanoVal : 0;
+    const ms = seconds * 1000 + nanos / 1e6;
+    return Number.isFinite(ms) && ms > 0 ? ms : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
 function extractAntigravityGenInfo(buf) {
   try {
     const root = findAntigravityProtoFields(buf);
@@ -23176,6 +23191,15 @@ function extractAntigravityGenInfo(buf) {
         }
       }
     }
+
+    const f11 = inner.find((f) => f.num === 11)?.val;
+    const f12 = inner.find((f) => f.num === 12)?.val;
+    const timeToFirstTokenMs = f11 ? extractAntigravityProtoDurationMs(f11) : null;
+    const streamingDurationMs = f12 ? extractAntigravityProtoDurationMs(f12) : null;
+    const durationMs =
+      (timeToFirstTokenMs || 0) + (streamingDurationMs || 0) > 0
+        ? (timeToFirstTokenMs || 0) + (streamingDurationMs || 0)
+        : null;
 
     let uncachedInput;
     let cachedInput;
@@ -23223,6 +23247,13 @@ function extractAntigravityGenInfo(buf) {
       model,
       contextTokens,
       lastStepIndex,
+      ...(durationMs !== null
+        ? {
+            durationMs,
+            ...(timeToFirstTokenMs !== null ? { timeToFirstTokenMs } : {}),
+            ...(streamingDurationMs !== null ? { streamingDurationMs } : {}),
+          }
+        : {}),
       ...(hasUsageMetadata
         ? {
             uncachedInput,
@@ -26755,6 +26786,11 @@ module.exports = {
   listAntigravityTranscriptsWithStatus,
   parseAntigravityIncremental,
   estimateAntigravityTokens,
+  antigravityValueTokens,
+  antigravityContextTokens,
+  normalizeAntigravityTranscriptModel,
+  parseAntigravityModelSelection,
+  readAntigravityDefaultModel,
   isCjkCodePoint,
   resolveAntigravityDbPath,
   extractAntigravityGenInfo,

@@ -124,7 +124,7 @@ function CodeBuddyIcon({ size = 16, className = "" }) {
     <svg
       width={size}
       height={size}
-      viewBox="0 0 64 60"
+      viewBox="2 2.5 59.5 56"
       fill="none"
       className={className}
       aria-hidden="true"
@@ -507,7 +507,7 @@ export function ProviderIcon({ provider, size = 16, color, className = "" }) {
   const logoSrc = PROVIDER_LOGO_MAP[logoKey];
 
   if (logoSrc) {
-    const logoClassName = `${PROVIDER_LOGO_CLASS_MAP[logoKey] || ""} ${className}`.trim();
+    const logoClassName = `${PROVIDER_LOGO_CLASS_MAP[logoKey] || ""} shrink-0 ${className}`.trim();
     return (
       <img
         src={logoSrc}
@@ -524,7 +524,7 @@ export function ProviderIcon({ provider, size = 16, color, className = "" }) {
   const IconComponent = PROVIDER_ICON_MAP[normalized];
 
   if (IconComponent) {
-    return <IconComponent size={size} className={className} />;
+    return <IconComponent size={size} className={`shrink-0 ${className}`.trim()} />;
   }
 
   // Fallback: dashed placeholder circle for unknown/other providers to keep layout aligned

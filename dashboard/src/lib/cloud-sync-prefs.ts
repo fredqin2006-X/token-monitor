@@ -1,3 +1,5 @@
+import { isLocalDashboardHost } from "./host-mode";
+
 const KEY_ENABLED = "tokentracker_cloud_sync_enabled";
 const KEY_CHANGED_AT = "tokentracker_cloud_sync_changed_at_ms";
 const KEY_DEVICE = "tokentracker_cloud_device_session_v1";
@@ -27,14 +29,7 @@ function clearLegacyStoredDeviceSession(): void {
   }
 }
 
-export function isLocalDashboardHost(): boolean {
-  if (typeof window === "undefined") return false;
-  const h = window.location.hostname;
-  // Mirror src/lib/local-api.js loopback handling (which includes IPv6) so the
-  // dashboard ↔ local-server contract — cloud-sync mirror, account view — holds
-  // on http://[::1] too. Browsers report IPv6 hostnames without brackets.
-  return h === "localhost" || h === "127.0.0.1" || h === "::1" || h === "[::1]";
-}
+export { isLocalDashboardHost };
 
 /**
  * Cloud sync requires an explicit opt-in. Preserve saved choices and fail

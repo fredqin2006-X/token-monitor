@@ -12,6 +12,7 @@ import {
   getMockAchievements,
   isMockEnabled,
 } from "./mock-data";
+import { isLocalDashboardHost } from "./host-mode";
 import { getInsforgeRemoteUrl, getInsforgeAnonKey } from "./insforge-config";
 import { isValidJwtShape, resolveAuthAccessToken, type AuthTokenProvider } from "./auth-token";
 import { getLocalApiAuthHeaders } from "./local-api-auth";
@@ -174,10 +175,7 @@ const USAGE_TO_ACCOUNT_SLUG: Record<string, string> = {
 };
 
 export function isLocalhostHost() {
-  return (
-    typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1")
-  );
+  return isLocalDashboardHost();
 }
 
 async function fetchLocalJson(slug: string, params?: AnyRecord, options?: AnyRecord) {

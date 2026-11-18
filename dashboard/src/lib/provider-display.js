@@ -13,6 +13,8 @@ const SPECIAL_PROVIDER_NAMES = {
   lmstudio: "LM Studio",
   opensquilla: "OpenSquilla",
   unsloth: "Unsloth Studio",
+  codebuddy: "CodeBuddy",
+  antigravity: "Antigravity",
 };
 
 const SPECIAL_PROVIDER_COPY_KEYS = {

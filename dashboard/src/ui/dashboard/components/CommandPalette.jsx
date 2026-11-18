@@ -7,10 +7,9 @@ import { ProviderIcon } from "./ProviderIcon.jsx";
 import { getInstalledSkills } from "../../../lib/skills-api";
 import { copy } from "../../../lib/copy";
 import { cn } from "../../../lib/cn";
+import { isLocalDashboardHost } from "../../../lib/host-mode";
 
-const IS_LOCAL_HOST =
-  typeof window !== "undefined" &&
-  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+const IS_LOCAL_HOST = isLocalDashboardHost();
 
 // A token tracker's command palette indexes things a skill manager has no concept
 // of: the usage/cost views (Usage, Limits, Leaderboard) alongside installed

@@ -1,5 +1,6 @@
 import { createClient } from "@insforge/sdk";
 import { functionUrlFor } from "./function-url";
+import { isLocalDashboardHost } from "./host-mode";
 import { validateInsforgeDeployment } from "./insforge-deployment-config.mjs";
 
 /**
@@ -21,14 +22,14 @@ const PROD_INSFORGE_ANON_KEY =
 export const INSFORGE_INSTANCE_CHANGED_EVENT = "tt.insforgeInstanceChanged";
 const INSTANCE_STORAGE_KEY = "tt.insforge.instance";
 type RuntimeConfiguration = {
-  baseUrl?: string; anonKey?: string; dashboardUrl?: string; configurationError?: string;
+  baseUrl?: string; anonKey?: string; dashboardUrl?: string; configurationError?: string; localHosts?: string[];
 };
 declare global {
   interface Window { __TOKENTRACKER_RUNTIME_CONFIG__?: RuntimeConfiguration; }
 }
 
 function localHost() {
-  return typeof window !== "undefined" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  return isLocalDashboardHost();
 }
 export function getInsforgeConfiguration() {
   const runtime = typeof window === "undefined" ? undefined : window.__TOKENTRACKER_RUNTIME_CONFIG__;

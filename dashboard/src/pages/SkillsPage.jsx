@@ -3,10 +3,9 @@ import { Popover } from "@base-ui/react/popover";
 import { Select } from "@base-ui/react/select";
 import { LocalOnlyNotice } from "../components/LocalOnlyNotice.jsx";
 import { isMockEnabled } from "../lib/mock-data";
+import { isLocalDashboardHost } from "../lib/host-mode";
 
-const IS_LOCAL_HOST =
-  typeof window !== "undefined" &&
-  (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+const IS_LOCAL_HOST = isLocalDashboardHost();
 import {
   ArrowUpCircle,
   Check,
