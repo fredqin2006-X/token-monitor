@@ -2238,7 +2238,6 @@ rate.unit.none,dashboard,RatePage,Units,none,—,,active
 rate.status.running,dashboard,RatePage,Status,running,Running,,active
 rate.status.recent,dashboard,RatePage,Status,recent,Recent,,active
 rate.status.idle,dashboard,RatePage,Status,idle,Idle,,active
-rate.badge.pid,dashboard,RatePage,Badge,pid,Process {{pid}},,active
 rate.badge.sessions_count,dashboard,RatePage,Badge,sessions_count,{{active}}/{{total}} active,,active
 rate.badge.sessions_total,dashboard,RatePage,Badge,sessions_total,{{total}} sessions,,active
 rate.project.latest_speed,dashboard,RatePage,ProjectCard,latest_speed,Current output rate,,active

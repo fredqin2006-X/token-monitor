@@ -1106,7 +1106,6 @@
   "rate.status.running": "正在运行",
   "rate.status.recent": "近期活跃",
   "rate.status.idle": "空闲",
-  "rate.badge.pid": "PID {{pid}}",
   "rate.badge.sessions_count": "{{active}}/{{total}} 个会话运行中",
   "rate.badge.sessions_total": "{{total}} 个会话",
   "rate.project.latest_speed": "当前生成速率",

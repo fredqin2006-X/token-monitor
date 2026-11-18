@@ -21,7 +21,7 @@ import { getTokenRate } from "../lib/rate-api";
 import { isLocalDashboardHost } from "../lib/host-mode";
 import { isMockEnabled } from "../lib/mock-data";
 import { cn } from "../lib/cn";
-import { TOKEN_FORMAT_MODES, TOKEN_UNIT_SYSTEMS } from "../lib/token-format.js";
+import { TOKEN_FORMAT_MODES } from "../lib/token-format.js";
 import { useCurrency } from "../hooks/useCurrency";
 import { useTokenFormat } from "../hooks/useTokenFormat.js";
 import { HoverTooltip } from "../ui/components/HoverTooltip.jsx";
@@ -206,10 +206,6 @@ function ProjectRateCard({ project, currency, exchangeRate, formatTokens, format
   const hasActiveSessions = 0 < Number(project.active_session_count);
   const hasSessions = Array.isArray(project.sessions) && 0 < project.sessions.length;
   const latestRate = rate.latest_tokens_per_second ?? rate.output_tokens_per_second;
-  const activePid = useMemo(() => {
-    const found = (project.sessions || []).find((s) => { return Boolean(s.process_alive && s.pid); });
-    return found ? found.pid : null;
-  }, [project.sessions]);
 
   const handleCopyPath = async () => {
     if (!project.project_ref) return;
@@ -244,11 +240,6 @@ function ProjectRateCard({ project, currency, exchangeRate, formatTokens, format
             <h3 className="min-w-0 truncate text-sm font-semibold text-oai-black sm:text-base dark:text-white">
               {project.project_key}
             </h3>
-            {activePid ? (
-              <span className="inline-flex shrink-0 whitespace-nowrap items-center rounded-md bg-emerald-500/10 px-2 py-0.5 font-mono text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
-                {copy("rate.badge.pid", { pid: activePid })}
-              </span>
-            ) : null}
             <span className="inline-flex shrink-0 whitespace-nowrap items-center rounded-md bg-oai-gray-100 px-2 py-0.5 text-[11px] text-oai-gray-600 sm:text-xs dark:bg-oai-gray-800 dark:text-oai-gray-300">
               {hasActiveSessions
                 ? copy("rate.badge.sessions_count", {
@@ -484,7 +475,6 @@ function ProjectRateCard({ project, currency, exchangeRate, formatTokens, format
           {project.sessions.map((session) => {
             const sRate = session.rate || {};
             const sHasOutput = 0 < Number(sRate.output_tokens_per_second);
-            const sHasThroughput = 0 < Number(sRate.total_tokens_per_second);
             return (
               <div
                 key={session.session_hash}
@@ -504,11 +494,6 @@ function ProjectRateCard({ project, currency, exchangeRate, formatTokens, format
                   >
                     {session.model}
                   </span>
-                  {session.process_alive && session.pid ? (
-                    <span className="shrink-0 whitespace-nowrap rounded bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
-                      {copy("rate.badge.pid", { pid: session.pid })}
-                    </span>
-                  ) : null}
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 pl-6 tabular-nums text-oai-gray-600 sm:justify-end sm:pl-0 dark:text-oai-gray-300">
                   <span className="font-semibold text-oai-black dark:text-white">
@@ -516,11 +501,6 @@ function ProjectRateCard({ project, currency, exchangeRate, formatTokens, format
                       ? `${formatRateNumber(sRate.latest_tokens_per_second ?? sRate.output_tokens_per_second, 1, formatTokens)} ${copy("rate.unit.tps")}`
                       : copy("rate.unit.none")}
                   </span>
-                  {sHasThroughput ? (
-                    <span className="text-oai-gray-500 dark:text-oai-gray-400">
-                      {`${formatRateNumber(sRate.total_tokens_per_second, 1, formatTokens)} ${copy("rate.unit.tps")}`}
-                    </span>
-                  ) : null}
                   <span title={formatTokensTooltip(session.tokens?.total_tokens || 0)}>
                     {formatTokens(session.tokens?.total_tokens || 0)}
                   </span>
@@ -540,7 +520,7 @@ function ProjectRateCard({ project, currency, exchangeRate, formatTokens, format
 export function RatePage() {
   const localAvailable = IS_LOCAL_HOST || isMockEnabled();
   const { currency, rate: exchangeRate } = useCurrency();
-  const { formatTokens, formatTokensTooltip, unitSystem, setUnitSystem } = useTokenFormat();
+  const { formatTokens, formatTokensTooltip } = useTokenFormat();
   const [activeMinutes, setActiveMinutes] = useState(15);
   const [statusFilter, setStatusFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
@@ -682,35 +662,6 @@ export function RatePage() {
           </div>
 
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-            <div className="inline-flex items-center rounded-lg border border-oai-gray-200 bg-oai-gray-50 p-0.5 dark:border-oai-gray-800 dark:bg-oai-gray-900">
-              {[
-                {
-                  id: TOKEN_UNIT_SYSTEMS.ENGLISH,
-                  label: copy("settings.appearance.token_unit.english"),
-                },
-                {
-                  id: TOKEN_UNIT_SYSTEMS.CHINESE,
-                  label: copy("settings.appearance.token_unit.chinese"),
-                },
-              ].map((opt) => {
-                return (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => { setUnitSystem(opt.id); }}
-                    className={cn(
-                      "whitespace-nowrap rounded-md px-2 py-1 text-[11px] font-medium transition-colors sm:px-2.5 sm:text-xs",
-                      unitSystem === opt.id
-                        ? "bg-white text-oai-black shadow-sm dark:bg-oai-gray-800 dark:text-white"
-                        : "text-oai-gray-500 hover:text-oai-black dark:text-oai-gray-400 dark:hover:text-white",
-                    )}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
-
             <div className="inline-flex items-center rounded-lg border border-oai-gray-200 bg-oai-gray-50 p-0.5 dark:border-oai-gray-800 dark:bg-oai-gray-900">
               {WINDOW_OPTIONS.map((opt) => {
                 return (

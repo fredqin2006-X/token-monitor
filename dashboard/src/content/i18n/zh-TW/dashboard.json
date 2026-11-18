@@ -1165,7 +1165,6 @@
   "rate.status.running": "正在執行",
   "rate.status.recent": "近期活躍",
   "rate.status.idle": "閒置",
-  "rate.badge.pid": "PID {{pid}}",
   "rate.badge.sessions_count": "{{active}}/{{total}} 個工作階段執行中",
   "rate.badge.sessions_total": "{{total}} 個工作階段",
   "rate.project.latest_speed": "目前產生速率",

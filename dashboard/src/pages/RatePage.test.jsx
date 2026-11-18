@@ -71,9 +71,6 @@ vi.mock("../lib/copy", () => {
       if (key === "rate.summary.output_speed_sub") {
         return `Avg ${vars.avg} · Peak ${vars.peak}`;
       }
-      if (key === "rate.badge.pid") {
-        return `Process ${vars.pid}`;
-      }
       if (key === "rate.section.projects_count") {
         return `${vars.count} projects`;
       }
@@ -179,7 +176,7 @@ const SAMPLE_RESPONSE = {
             output_tokens_per_second: 35.4,
             latest_tokens_per_second: 38.2,
             peak_tokens_per_second: 49.0,
-            total_tokens_per_second: 980.0,
+            total_tokens_per_second: 977.0,
             tokens_per_minute: 4200,
             estimated_output_tokens: 3200,
             estimated_duration_ms: 90395,
@@ -302,10 +299,10 @@ describe("RatePage", () => {
     mockGetTokenRate.mockResolvedValue(SAMPLE_RESPONSE);
   });
 
-  it("renders running CodeBuddy and Antigravity projects, filters by provider, and supports Wan/Yi units", async () => {
+  it("renders running CodeBuddy and Antigravity projects without PID, filters by provider, and follows settings Wan/Yi units", async () => {
     window.localStorage.clear();
     const user = userEvent.setup();
-    render(
+    const { unmount } = render(
       <TokenFormatProvider>
         <RatePage />
       </TokenFormatProvider>,
@@ -317,14 +314,25 @@ describe("RatePage", () => {
     });
 
     expect(screen.getByText("2 projects")).toBeInTheDocument();
-    expect(screen.getAllByText("Process 46940").length).toBeGreaterThan(0);
-    // Compact English units by default (88,200 -> 88.2K, 105,000 -> 105K)
+    expect(screen.queryByText(/46940/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/977/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "settings.appearance.token_unit.chinese" })).not.toBeInTheDocument();
+    // Compact English units by default (88,200 to 88.2K, 105,000 to 105K)
     expect(screen.getAllByText(/88\.2K/).length).toBeGreaterThan(0);
 
-    // Switch to Chinese Wan/Yi units
-    await user.click(screen.getByRole("button", { name: "settings.appearance.token_unit.chinese" }));
-    expect(screen.getAllByText(/8\.8万/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/10\.5万/).length).toBeGreaterThan(0);
+    unmount();
+
+    // Follows Settings: Token unit system = chinese (Wan/Yi)
+    window.localStorage.setItem("tt.tokenUnitSystem", "chinese");
+    render(
+      <TokenFormatProvider>
+        <RatePage />
+      </TokenFormatProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getAllByText(/8\.8万/).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/10\.5万/).length).toBeGreaterThan(0);
+    });
 
     const antigravityFilterBtn = screen.getAllByRole("button", { name: "Antigravity" })[0];
     await user.click(antigravityFilterBtn);
