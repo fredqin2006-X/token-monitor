@@ -75,7 +75,7 @@ vi.mock("../lib/copy", () => {
         return `${vars.count} projects`;
       }
       if (key === "rate.session.native_rate") return `${vars.value} tok/s · OpenCode`;
-      if (key === "rate.project.e2e_estimate") return `End-to-end estimate ${vars.value} ${vars.unit}`;
+      if (key === "rate.project.e2e_rate") return `End-to-end ${vars.value} ${vars.unit}`;
       if (key === "rate.unit.tps") return "tokens/sec";
       return key;
     },
@@ -302,7 +302,7 @@ describe("RatePage", () => {
     mockGetTokenRate.mockResolvedValue(SAMPLE_RESPONSE);
   });
 
-  it("shows OpenCode's native rate in the session and keeps fallback estimates labeled", async () => {
+  it("shows OpenCode's native rate and removes the estimate wording from fallback rates", async () => {
     const project = structuredClone(SAMPLE_RESPONSE.projects[0]);
     project.rate.end_to_end_tokens_per_second = 10.9;
     project.rate.end_to_end_estimated = true;
@@ -311,12 +311,19 @@ describe("RatePage", () => {
       native_source: "opencode_api",
       output_tokens_per_second: 111.3,
     });
+    project.sessions.push({
+      ...project.sessions[0],
+      session_hash: "fallback-session",
+      rate: { end_to_end_tokens_per_second: 12.3, end_to_end_estimated: true },
+    });
     mockGetTokenRate.mockResolvedValue({ ...SAMPLE_RESPONSE, projects: [project] });
     render(<RatePage />);
 
     const native = await screen.findByText("113.4 tok/s · OpenCode");
     expect(native).toHaveAttribute("title", "rate.session.native_api");
-    expect(screen.getByText("End-to-end estimate 10.9 tokens/sec")).toBeInTheDocument();
+    expect(screen.getByText("End-to-end 10.9 tokens/sec")).toBeInTheDocument();
+    expect(screen.getByText("12.3 tokens/sec")).toHaveAttribute("title", "End-to-end 12.3 tokens/sec");
+    expect(screen.queryByText(/end-to-end estimate/i)).not.toBeInTheDocument();
   });
 
   it("renders running CodeBuddy and Antigravity projects without PID, filters by provider, and follows settings Wan/Yi units", async () => {

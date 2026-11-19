@@ -81,10 +81,7 @@ function formatRateNumber(value, digits = 1, formatCount = formatCompactNumber) 
 
 function formatEndToEndRate(rate, formatTokens) {
   const value = formatRateNumber(rate.end_to_end_tokens_per_second, 1, formatTokens);
-  const params = { value, unit: copy("rate.unit.tps") };
-  return rate.end_to_end_estimated
-    ? copy("rate.project.e2e_estimate", params)
-    : copy("rate.project.e2e_rate", params);
+  return copy("rate.project.e2e_rate", { value, unit: copy("rate.unit.tps") });
 }
 
 function formatLatencyMs(ms) {
@@ -489,7 +486,7 @@ function ProjectRateCard({ project, currency, exchangeRate, formatTokens, format
           {project.sessions.map((session) => {
             const sRate = session.rate || {};
             let rateLabel = copy("rate.unit.none");
-            let rateSource;
+            let rateSource = sRate.timing_source === "claude_otel" ? copy("rate.session.claude_otel") : undefined;
             if (0 < Number(sRate.native_tokens_per_second)) {
               rateLabel = copy("rate.session.native_rate", { value: formatRateNumber(sRate.native_tokens_per_second, 1, formatTokens) });
               rateSource = sRate.native_source === "opencode_api"
@@ -498,7 +495,9 @@ function ProjectRateCard({ project, currency, exchangeRate, formatTokens, format
             } else if (0 < Number(sRate.output_tokens_per_second)) {
               rateLabel = `${formatRateNumber(sRate.latest_tokens_per_second ?? sRate.output_tokens_per_second, 1, formatTokens)} ${copy("rate.unit.tps")}`;
             } else if (0 < Number(sRate.end_to_end_tokens_per_second)) {
-              rateLabel = formatEndToEndRate(sRate, formatTokens);
+              const value = formatRateNumber(sRate.end_to_end_tokens_per_second, 1, formatTokens);
+              rateLabel = `${value} ${copy("rate.unit.tps")}`;
+              rateSource ||= formatEndToEndRate(sRate, formatTokens);
             }
             return (
               <div

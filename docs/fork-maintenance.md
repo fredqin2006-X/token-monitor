@@ -27,15 +27,33 @@ git diff --stat upstream/main HEAD
 
 跨客户端比较采用 [vLLM 的 TPOT 定义](https://docs.vllm.ai/en/stable/benchmarking/cli/)。每个有效流式请求贡献 `生成 Token 数 − 1` 和首末 Token 间隔。平均值用两项各自求和后相除，近期值取最近三个完成样本，峰值取单请求最大值。速率页每 5 秒刷新完成样本。首 Token 延迟单独统计，并显示有该数据的样本数。
 
-窗口吞吐用所选 5／15／60 分钟内记录的输入、缓存和生成用量除以窗口长度，包含缺少请求计时的数据。用量按已有分钟桶统计。只有请求起止时间时，卡片展示端到端输出速率。日志推算的端到端速率带估算标记。缺少相应计时时显示 `—`。 [NVIDIA AIPerf 指标口径](https://docs.nvidia.com/aiperf/v0.12.0/reference/ai-perf-metrics-reference)
+窗口吞吐用所选 5／15／60 分钟内记录的输入、缓存和生成用量除以窗口长度，包含缺少请求计时的数据。用量按已有分钟桶统计。只有请求起止时间时，卡片展示端到端输出速率，会话行显示数值。缺少相应计时时显示 `—`。 [NVIDIA AIPerf 指标口径](https://docs.nvidia.com/aiperf/v0.12.0/reference/ai-perf-metrics-reference)
 
 | 本机客户端 | 采集来源 |
 | --- | --- |
 | OpenCode 2.3.2 | 优先读取官方本机 API 的消息计时与用量，服务不可用时使用 SQLite 同名字段。会话行按对应轮次复算 TUI 原生速率，跨客户端比较用 TPOT。 [OpenCode API](https://opencode.ai/docs/api) · [原生公式](https://github.com/anomalyco/opencode/blob/v2.3.2/packages/util/src/session-turn.ts#L31-L50) |
 | Codex 0.166.0 | App Server 提供线程用量和流事件。已在运行的独立会话从本机 rollout 读取可用的官方首 Token 字段，并用日志边界估算端到端输出速率。 [App Server 文档](https://developers.openai.com/codex/app-server/) |
-| Claude Code 2.1.327 | 官方 OpenTelemetry 可导出请求耗时、首 Token 延迟和输出用量，需要事先启用。现有独立会话从 transcript 边界估算端到端输出速率。 [Claude Code 监控文档](https://code.claude.com/docs/en/monitoring-usage) |
+| Claude Code 2.1.327 | 优先使用官方 OpenTelemetry 请求 span。所选时间窗内没有官方样本的会话使用 transcript 边界估算端到端输出速率。 [Claude Code 监控文档](https://code.claude.com/docs/en/monitoring-usage) |
 | CodeBuddy 2.185.0 | 官方流输出适用于调用方启动的 print 模式。已有交互会话通过消息 ID 关联用量与本机日志，从首个有效 Token 计到输出结束标记。 [CodeBuddy CLI 文档](https://www.codebuddy.ai/docs/cli/cli-reference) |
 | Antigravity CLI 1.5.12 | 官方 CLI 和 SDK 提供自己的交互与程序化入口。已有会话使用本机数据库记录的首 Token 和流式时长。 [Antigravity CLI 文档](https://antigravity.google/docs/cli/reference/) |
+
+### 启用本机 Claude Code 计时导出
+
+在 `~/.tokentracker/tracker/claude-otel-receiver.json` 写入 `{"port":14318}` 并重启 Token Monitor。将以下字段合并到 Claude Code 用户设置 `~/.claude/settings.json` 的 `env` 对象。使用自定义 `CLAUDE_CONFIG_DIR` 时，修改该目录下的 `settings.json`。新启动的 Claude Code 进程会加载这些设置。
+
+```json
+{
+  "CLAUDE_CODE_ENABLE_TELEMETRY": "1",
+  "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA": "1",
+  "OTEL_TRACES_EXPORTER": "otlp",
+  "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": "http/json",
+  "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "http://127.0.0.1:14318/v1/traces",
+  "OTEL_METRICS_EXPORTER": "none",
+  "OTEL_LOGS_EXPORTER": "none"
+}
+```
+
+接收器仅监听 `127.0.0.1`。它只保存成功模型请求的会话标识、模型、输出 Token 数和计时。用 `session.id` 关联合适的本机会话，用 span ID 排除重发。每批写入保留最近 24 小时内最多 10,000 条样本。官方端到端计时用 `duration_ms`，首 Token 延迟用 `ttft_ms`。流式请求用 `duration_ms − first_content_ms` 作为客户端测得的输出时长，结束边界是请求完成时间。用量与成本继续由会话用量记录提供。 [Anthropic trace 字段](https://code.claude.com/docs/en/monitoring-usage#span-attributes)
 
 ```bash
 node --test test/token-rate.test.js test/session-performance.test.js

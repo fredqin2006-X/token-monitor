@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { startClaudeTelemetryReceiver } = require("../src/lib/claude-otel");
 const {
   createAntigravityPerformanceCollector,
 } = require("../src/lib/session-performance");
@@ -246,6 +247,72 @@ test("window aggregation keeps estimated requests out of decode rate and uses wa
   assert.equal(rate.end_to_end_estimated, true);
   assert.equal(rate.first_response_ms, 1_000);
   assert.equal(rate.first_response_sample_count, 2);
+});
+
+test("Claude Code OTLP request spans override transcript estimates and discard duplicates, failures and content", async (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "tt-claude-otel-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const trackerDir = path.join(home, ".tokentracker", "tracker");
+  fs.mkdirSync(trackerDir, { recursive: true });
+  fs.writeFileSync(path.join(trackerDir, "claude-otel-receiver.json"), '{"port":0}');
+  const receiver = await startClaudeTelemetryReceiver(trackerDir);
+  t.after(() => new Promise((resolve) => {
+    receiver.closeAllConnections();
+    receiver.close(resolve);
+  }));
+
+  const sessionId = "00000000-0000-4000-8000-000000000001";
+  const model = "claude-sonnet-5";
+  const now = Date.now();
+  const user = { type: "user", uuid: "u1", sessionId, cwd: "/repo/otel", timestamp: new Date(now - 12_000).toISOString() };
+  const assistant = { type: "assistant", parentUuid: "u1", uuid: "a1", sessionId, cwd: user.cwd, timestamp: new Date(now - 3_000).toISOString(),
+    message: { id: "msg_1", model, usage: { input_tokens: 1000, output_tokens: 250 }, stop_reason: "end_turn" } };
+  const projectDir = path.join(home, ".claude", "projects", "otel");
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.writeFileSync(path.join(projectDir, `${sessionId}.jsonl`), `${JSON.stringify(user)}\n${JSON.stringify(assistant)}\n`);
+  const options = { home, now, activeWindowMinutes: 5 };
+  const fallback = (await computeProjectTokenRates(options)).projects[0].sessions[0].rate;
+  assert.equal(fallback.output_tokens_per_second, null);
+  assert.equal(fallback.end_to_end_estimated, true);
+
+  const attribute = (key, value) => ({ key, value });
+  const span = {
+    name: "claude_code.llm_request", traceId: "1".repeat(32), spanId: "2".repeat(16),
+    startTimeUnixNano: String(BigInt(now - 9_000) * 1_000_000n),
+    endTimeUnixNano: String(BigInt(now - 3_000) * 1_000_000n),
+    attributes: [
+      attribute("session.id", { stringValue: sessionId }),
+      attribute("model", { stringValue: model }),
+      attribute("success", { boolValue: true }),
+      attribute("duration_ms", { intValue: "6000" }),
+      attribute("ttft_ms", { intValue: "2000" }),
+      attribute("first_content_ms", { intValue: "2100" }),
+      attribute("output_tokens", { intValue: "250" }),
+      attribute("prompt", { stringValue: "raw-content-must-not-be-retained" }),
+    ],
+  };
+  const failed = { ...span, spanId: "3".repeat(16), status: { code: 2 } };
+  const tool = { ...span, spanId: "4".repeat(16), name: "claude_code.tool" };
+  const payload = JSON.stringify({ resourceSpans: [{ scopeSpans: [{ spans: [span, failed, tool] }] }] });
+  const url = `http://127.0.0.1:${receiver.address().port}/v1/traces`;
+  const request = { method: "POST", headers: { "Content-Type": "application/json" }, body: payload };
+  assert.equal((await fetch(url, { ...request, headers: { ...request.headers, Origin: "https://example.com" } })).status, 403);
+  await Promise.all([1, 2].map(async () => {
+    assert.equal((await fetch(url, request)).status, 200);
+  }));
+
+  const report = await computeProjectTokenRates(options);
+  const rate = report.projects[0].sessions[0].rate;
+  assert.equal(rate.timing_source, "claude_otel");
+  assert.equal(rate.output_tokens_per_second, 63.8);
+  assert.equal(rate.end_to_end_tokens_per_second, 41.7);
+  assert.equal(rate.estimated_request_count, 1);
+  assert.equal(report.summary.first_response_ms, 2000);
+  assert.equal(report.summary.sample_count, 1);
+  assert.equal(report.projects[0].tokens.total_tokens, 1250);
+  const saved = fs.readFileSync(path.join(trackerDir, "claude-otel-requests.json"), "utf8");
+  assert.doesNotMatch(saved, /raw-content-must-not-be-retained/);
+  assert.equal(JSON.parse(saved).length, 1);
 });
 
 test("classifySessionActivity treats IDLE Antigravity and exited CodeBuddy as not running even when recently touched", () => {

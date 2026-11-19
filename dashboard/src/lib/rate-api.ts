@@ -21,6 +21,7 @@ export interface RateMetrics {
   end_to_end_estimated?: boolean;
   native_tokens_per_second?: number;
   native_source?: "opencode_api" | "opencode_db";
+  timing_source?: "claude_otel";
   tokens_per_minute?: number;
   requests_per_minute?: number;
   estimated_output_tokens: number;

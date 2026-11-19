@@ -2245,10 +2245,10 @@ rate.project.avg_speed,dashboard,RatePage,ProjectCard,avg_speed,Avg output rate,
 rate.project.peak_speed,dashboard,RatePage,ProjectCard,peak_speed,Peak output rate,,active
 rate.project.total_throughput,dashboard,RatePage,ProjectCard,total_throughput,Window throughput,,active
 rate.project.e2e_rate,dashboard,RatePage,ProjectCard,e2e_rate,End-to-end {{value}} {{unit}},,active
-rate.project.e2e_estimate,dashboard,RatePage,ProjectCard,e2e_estimate,End-to-end estimate {{value}} {{unit}},,active
 rate.session.native_rate,dashboard,RatePage,ProjectCard,native_rate,{{value}} tok/s · OpenCode,,active
 rate.session.native_api,dashboard,RatePage,ProjectCard,native_api,OpenCode native rate from its local API,,active
 rate.session.native_db,dashboard,RatePage,ProjectCard,native_db,OpenCode native rate from its local session database,,active
+rate.session.claude_otel,dashboard,RatePage,ProjectCard,claude_otel,Request timing reported by Claude Code over OpenTelemetry,,active
 rate.project.burn_rate,dashboard,RatePage,ProjectCard,burn_rate,Burn rate,,active
 rate.project.first_token,dashboard,RatePage,ProjectCard,first_token,First token,,active
 rate.project.cache_hit,dashboard,RatePage,ProjectCard,cache_hit,Cache hit,,active

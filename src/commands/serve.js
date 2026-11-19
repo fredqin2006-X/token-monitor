@@ -10,6 +10,7 @@ const { ensurePricingLoaded } = require("../lib/pricing");
 const { serveStaticFile } = require("../lib/static-server");
 const { openInBrowser } = require("../lib/browser-auth");
 const { maybeShowStarCta } = require("../lib/star-cta");
+const { startClaudeTelemetryReceiver } = require("../lib/claude-otel");
 
 const DEFAULT_PORT = 7680;
 // Windows Delivery Optimization (DoSvc) listens on 0.0.0.0:7680 on virtually
@@ -285,6 +286,14 @@ async function cmdServe(argv) {
     setInterval(sendHeartbeat, 6 * 60 * 60 * 1000).unref();
   }
 
+  const claudeOtlp = await startClaudeTelemetryReceiver(trackerDir).catch((error) => {
+    process.stderr.write(`Claude Code OTLP receiver unavailable: ${error.code || error.message}\n`);
+    return null;
+  });
+  if (claudeOtlp) {
+    process.stdout.write(`Claude Code OTLP traces at http://127.0.0.1:${claudeOtlp.address().port}/v1/traces\n`);
+  }
+
   server.on("error", (e) => {
     process.stderr.write(`Server error: ${e.message}\n`);
     process.exitCode = 1;
@@ -294,7 +303,9 @@ async function cmdServe(argv) {
   const shutdown = () => {
     process.stdout.write("\nShutting down...\n");
     nativeBackgroundSync?.stop();
-    server.close(() => process.exit(0));
+    const listeners = claudeOtlp ? [server, claudeOtlp] : [server];
+    void Promise.all(listeners.map((listener) => new Promise((resolve) => listener.close(resolve))))
+      .then(() => process.exit(0));
     setTimeout(() => process.exit(0), 3000);
   };
   process.on("SIGINT", shutdown);

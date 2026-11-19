@@ -27,6 +27,8 @@ const {
   createAntigravityPerformanceCollector,
 } = require("./session-performance");
 const { readOpencodeApiRates } = require("./opencode-rate");
+const { readClaudeTimingSamples } = require("./claude-otel");
+const { resolveTrackerPaths } = require("./tracker-paths");
 const { readCodebuddyStreamTimings } = require("./codebuddy-stream-timing");
 const { computeRowCost, getModelPricingInfo } = require("./pricing");
 const { readSqliteJsonRows } = require("./sqlite-reader");
@@ -1047,6 +1049,8 @@ async function computeProjectTokenRates({
     includeRateSamples: true,
   }).sessions || [];
   const cutoffMs = nowMs - activeWindowMs;
+  const { trackerDir } = await resolveTrackerPaths({ home });
+  const claudeTimings = await readClaudeTimingSamples(trackerDir, cutoffMs, nowMs);
   const opencodeRates = await readOpencodeApiRates(browserSessions.filter((row) =>
     row.source === "opencode" && row.session_id &&
     row.rate_samples.some((sample) => sample.timestamp_ms >= cutoffMs),
@@ -1138,7 +1142,8 @@ async function computeProjectTokenRates({
     };
     const windowRate = computeRecentWindowRate(session.usage_buckets, nowMs, activeWindowMs);
     const official = opencodeRates.get(session.session_hash);
-    const samples = (session.rate_samples || [])
+    const claudeOfficial = session.source === "claude" ? claudeTimings.get(session.session_id?.toLowerCase()) : null;
+    const samples = (claudeOfficial || session.rate_samples || [])
       .map((sample) => official?.samples.get(sample.request_id) || sample)
       .filter((sample) => Number.isFinite(sample.timestamp_ms) && sample.timestamp_ms >= cutoffMs && sample.timestamp_ms <= nowMs);
     const nativeRate = official?.nativeRate?.timestamp_ms >= (session.native_rate?.timestamp_ms || 0)
@@ -1245,6 +1250,7 @@ async function computeProjectTokenRates({
         ...rateSummary,
         tokens_per_minute: Number(windowRate.tokensPerMinute.toFixed(1)),
         requests_per_minute: Number(windowRate.requestsPerMinute.toFixed(2)),
+        ...(claudeOfficial ? { timing_source: "claude_otel" } : {}),
         ...(nativeRate?.timestamp_ms >= cutoffMs && nativeRate.timestamp_ms <= nowMs ? {
           native_tokens_per_second: Number(nativeRate.tokens_per_second.toFixed(1)),
           native_source: nativeRate.source,
