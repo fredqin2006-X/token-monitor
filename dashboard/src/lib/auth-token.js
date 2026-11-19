@@ -1,4 +1,4 @@
-import { isLocalDashboardHost } from "./host-mode";
+import { isLocalDashboardHost } from "./host-mode.ts";
 
 export function normalizeAccessToken(token) {
   if (typeof token !== "string") return null;

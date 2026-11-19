@@ -1,4 +1,4 @@
-import { isLocalDashboardHost } from "./host-mode";
+import { isLocalDashboardHost } from "./host-mode.ts";
 
 const KEY_ENABLED = "tokentracker_cloud_sync_enabled";
 const KEY_CHANGED_AT = "tokentracker_cloud_sync_changed_at_ms";
