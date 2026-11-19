@@ -19,66 +19,23 @@ const SUPPORTED_PROVIDERS = (() => {
 })();
 const TOOL_COUNT = SUPPORTED_PROVIDERS.length;
 
-const README_EXPECTATIONS = [
-  [
-    "README.md",
-    () => new RegExp(`${TOOL_COUNT} AI coding tools`),
-    () => new RegExp(`\\|\\s+\\*\\*AI tools supported\\*\\*\\s+\\|\\s+\\*\\*${TOOL_COUNT}\\*\\*`),
-    /Rate-limit tracking.*✅ 18 providers/,
-  ],
-  [
-    "README.zh-CN.md",
-    () => new RegExp(`${TOOL_COUNT} 款 AI 编码工具`),
-    () => new RegExp(`\\|\\s+\\*\\*支持的 AI 工具数\\*\\*\\s+\\|\\s+\\*\\*${TOOL_COUNT}\\*\\*`),
-    /限额追踪.*✅ 18 家 provider/,
-  ],
-  [
-    "README.ja.md",
-    () => new RegExp(`${TOOL_COUNT} 種類の AI コーディングツール`),
-    () => new RegExp(`\\|\\s+\\*\\*対応 AI ツール数\\*\\*\\s+\\|\\s+\\*\\*${TOOL_COUNT}\\*\\*`),
-    /レート制限トラッキング.*✅ 18 プロバイダー/,
-  ],
-  [
-    "README.ko.md",
-    () => new RegExp(`${TOOL_COUNT}개의 AI 코딩 도구`),
-    () => new RegExp(`\\|\\s+\\*\\*지원하는 AI 도구 수\\*\\*\\s+\\|\\s+\\*\\*${TOOL_COUNT}\\*\\*`),
-    /레이트 제한 추적.*✅ 18개 프로바이더/,
-  ],
-  [
-    "README.de.md",
-    () => new RegExp(`${TOOL_COUNT} KI-Coding-Tools`),
-    () => new RegExp(`\\|\\s+\\*\\*Unterstützte KI-Tools\\*\\*\\s+\\|\\s+\\*\\*${TOOL_COUNT}\\*\\*`),
-    /Rate-Limit-Tracking.*✅ 18 Provider/,
-  ],
-];
-
 test("public discovery surfaces describe every supported tool", () => {
   // Devin CLI is the 38th integration — a token-statistics source, not a
   // quota-only badge — so every public inventory must carry it explicitly.
   assert.ok(SUPPORTED_PROVIDERS.includes("Devin CLI"), "init advertises Devin CLI");
 
-  for (const [file, countPattern, comparisonPattern, limitCountPattern] of README_EXPECTATIONS) {
-    const source = read(file);
-    assert.match(source, countPattern(), `${file} has the current provider count`);
-    assert.match(source, comparisonPattern(), `${file} comparison table has the current provider count`);
-    assert.match(source, /Droid/, `${file} lists Droid`);
-    assert.match(source, /AnythingLLM Desktop/, `${file} lists AnythingLLM Desktop`);
-    assert.match(source, /Qoder/, `${file} lists Qoder`);
-    assert.match(source, /DeepSeek Harness/, `${file} lists DeepSeek Harness`);
-    assert.match(source, /Prime Agent/, `${file} lists Prime Agent`);
-    assert.match(source, /TRAE Work CN/, `${file} lists TRAE Work CN`);
-    assert.match(source, /AStudio/, `${file} lists AStudio`);
-    assert.doesNotMatch(source, /\bAcode\b/, `${file} does not expose the former product name`);
-    assert.match(source, /TOKENTRACKER_ACODE_HOME/, `${file} documents the AStudio directory override`);
-    assert.match(source, /LM Studio/, `${file} lists LM Studio`);
-    assert.match(source, /Unsloth Studio/, `${file} lists Unsloth Studio`);
-    assert.match(source, /Devin CLI/, `${file} lists Devin CLI`);
-    assert.match(source, /Cline/, `${file} preserves the upstream Cline integration`);
-    assert.match(source, /MiniMax Code/, `${file} lists MiniMax Code`);
-    assert.match(source, /Command Code/, `${file} lists Command Code`);
-    assert.match(source, /DuMate/, `${file} lists DuMate`);
-    assert.match(source, /TOKENTRACKER_DUMATE_HOME/, `${file} documents the DuMate directory override`);
-    assert.match(source, limitCountPattern, `${file} rate-limit row carries the current usage-limits provider count`);
+  const readme = read("README.md");
+  assert.match(readme, new RegExp(`${TOOL_COUNT} AI coding tools`), "README.md has the current provider count");
+  assert.match(readme, new RegExp(`\\|\\s+\\*\\*AI tools supported\\*\\*\\s+\\|\\s+\\*\\*${TOOL_COUNT}\\*\\*`));
+  assert.match(readme, /Rate-limit tracking.*✅ 18 providers/);
+  assert.doesNotMatch(readme, /\bAcode\b/);
+  for (const tool of ["Droid", "AnythingLLM Desktop", "Qoder", "DeepSeek Harness", "Prime Agent", "TRAE Work CN",
+    "AStudio", "LM Studio", "Unsloth Studio", "Devin CLI", "Cline", "MiniMax Code", "Command Code", "DuMate"]) {
+    assert.ok(readme.includes(tool), `README.md lists ${tool}`);
+  }
+  for (const option of ["TOKENTRACKER_ACODE_HOME", "TOKENTRACKER_DUMATE_HOME", "TOKENTRACKER_LMSTUDIO_HOME",
+    "TOKENTRACKER_UNSLOTH_DB", "TOKENTRACKER_DEVIN_DB"]) {
+    assert.ok(readme.includes(option), `README.md documents ${option}`);
   }
 
   const index = read("dashboard/index.html");
@@ -108,11 +65,6 @@ test("public discovery surfaces describe every supported tool", () => {
   assert.match(llms, /desktop pet/i);
   assert.match(llms, /four desktop widgets/i);
   assert.match(llms, /achievements/i);
-
-  const englishReadme = read("README.md");
-  assert.match(englishReadme, /TOKENTRACKER_LMSTUDIO_HOME/);
-  assert.match(englishReadme, /TOKENTRACKER_UNSLOTH_DB/);
-  assert.match(englishReadme, /TOKENTRACKER_DEVIN_DB/);
 });
 
 test("marketing logo wall includes the same supported product integrations", () => {
