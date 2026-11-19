@@ -110,7 +110,7 @@ const {
 // ~/.pi/agent/sessions/**/*.jsonl, with pi-subagents fork transcripts folded into
 // their parent session. A new source always takes the next number: bumping the
 // version invalidates every cached row, so one must never be reused.
-const SIDECAR_VERSION = 31;
+const SIDECAR_VERSION = 32;
 // Invalidate only Codex token summaries; other sources keep their cached rows.
 const CODEX_USAGE_VERSION = 1;
 const EDIT_TOOLS = new Set([

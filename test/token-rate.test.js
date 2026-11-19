@@ -6,7 +6,6 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const {
-  createCodebuddyPerformanceCollector,
   createAntigravityPerformanceCollector,
 } = require("../src/lib/session-performance");
 const {
@@ -19,61 +18,6 @@ const {
   scanCodebuddySession,
   scanAntigravitySession,
 } = require("../src/lib/session-analytics");
-
-test("CodeBuddy performance collector excludes tool execution via parentId chain", () => {
-  const collector = createCodebuddyPerformanceCollector();
-  const rows = [
-    { id: "u1", parentId: null, type: "message", role: "user", timestamp: 1_700_000_000_000 },
-    { id: "r1", parentId: "u1", type: "reasoning", timestamp: 1_700_000_001_000 },
-    {
-      id: "fc1",
-      parentId: "r1",
-      type: "function_call",
-      name: "read_file",
-      timestamp: 1_700_000_004_000,
-      providerData: {
-        messageId: "msg-1",
-        model: "glm-5.1",
-        rawUsage: { prompt_tokens: 1000, completion_tokens: 120, total_tokens: 1120 },
-      },
-    },
-    // Tool executes for 20 seconds (4000ms -> 24000ms)
-    { id: "fcr1", parentId: "fc1", type: "function_call_result", timestamp: 1_700_000_024_000 },
-    {
-      id: "m2",
-      parentId: "fcr1",
-      type: "message",
-      role: "assistant",
-      timestamp: 1_700_000_029_000,
-      providerData: {
-        messageId: "msg-2",
-        model: "glm-5.1",
-        rawUsage: { prompt_tokens: 1200, completion_tokens: 200, total_tokens: 1400 },
-      },
-    },
-  ];
-
-  for (const row of rows) {
-    const rawUsage = row.providerData?.rawUsage;
-    const usage = rawUsage
-      ? {
-          input_tokens: rawUsage.prompt_tokens,
-          output_tokens: rawUsage.completion_tokens,
-          total_tokens: rawUsage.total_tokens,
-        }
-      : null;
-    collector.consume(row, row.providerData?.messageId, usage, "glm-5.1");
-  }
-
-  const finished = collector.finish();
-  // Round 1: 4000ms (120 tok -> 30 tok/s). Round 2: 5000ms (200 tok -> 40 tok/s).
-  // Total: 320 output tokens over 9000ms (~35.56 tok/s), tool execution (20s) excluded.
-  assert.equal(finished.performance.estimated_request_count, 2);
-  assert.equal(finished.performance.estimated_output_tokens, 320);
-  assert.equal(finished.performance.estimated_duration_ms, 9000);
-  assert.ok(Math.abs(finished.performance.estimated_tokens_per_second - 320 / 9) < 0.01);
-  assert.equal(finished.samples.length, 2);
-});
 
 test("Antigravity performance collector calculates rate from SQLite turn and transcript steps", () => {
   const collector = createAntigravityPerformanceCollector();
@@ -96,6 +40,7 @@ test("Antigravity performance collector calculates rate from SQLite turn and tra
       totalTokens: 12360,
       dbTurn: {
         durationMs: 4500,
+        streamingDurationMs: 3600,
         timeToFirstTokenMs: 900,
       },
     },
@@ -104,9 +49,23 @@ test("Antigravity performance collector calculates rate from SQLite turn and tra
   const finished = collector.finish();
   assert.equal(finished.performance.estimated_request_count, 1);
   assert.equal(finished.performance.estimated_output_tokens, 360);
-  assert.equal(finished.performance.estimated_duration_ms, 4500);
-  assert.equal(finished.performance.estimated_tokens_per_second, 80);
+  assert.equal(finished.performance.estimated_duration_ms, 3600);
+  assert.equal(finished.performance.estimated_tokens_per_second, 100);
   assert.equal(finished.performance.first_response_ms, 900);
+});
+
+test("Antigravity does not infer output time from request or transcript boundaries", () => {
+  const collector = createAntigravityPerformanceCollector();
+  const output = { type: "PLANNER_RESPONSE", status: "DONE", created_at: "2026-11-18T10:00:06.000Z" };
+  collector.consume({ type: "USER_INPUT", created_at: "2026-11-18T10:00:00.000Z" });
+  collector.consume(output, { outputTokens: 300 });
+  collector.consume({ type: "RUN_COMMAND", created_at: "2026-11-18T10:00:30.000Z" });
+  collector.consume(output, { outputTokens: 300, dbTurn: { durationMs: 900, timeToFirstTokenMs: 900 } });
+  collector.consume({ ...output, status: "CANCELLED" }, { outputTokens: 300, dbTurn: { streamingDurationMs: 5000, timeToFirstTokenMs: 300 } });
+  const { performance, samples } = collector.finish();
+  assert.deepEqual(samples, []);
+  assert.equal(performance.estimated_tokens_per_second, null);
+  assert.equal(performance.first_response_ms, 900);
 });
 
 test("scanCodebuddySession and scanAntigravitySession compute rates and aggregate into computeProjectTokenRates", async (t) => {
@@ -121,6 +80,19 @@ test("scanCodebuddySession and scanAntigravitySession compute rates and aggregat
 
   const cbSessionId = "01a1ec69-13f0-78b1-86d0-db232459021b";
   const cbJsonl = path.join(cbProjectDir, `${cbSessionId}.jsonl`);
+  const localDate = new Date(nowMs);
+  const logDir = path.join(home, ".codebuddy", "logs", [
+    localDate.getFullYear(), localDate.getMonth() + 1, localDate.getDate(),
+  ].map((part) => String(part).padStart(2, "0")).join("-"));
+  fs.mkdirSync(logDir, { recursive: true });
+  const prefix = "[2026/11/18 10:00:00.000] [Info] [pid=123] [ModelProvider]";
+  fs.writeFileSync(path.join(logDir, "project.log"), [
+    `${prefix} [ModelProvider] First meaningful token received: agent=cli, requestId=cb-msg-1, ttft=3000ms, rawChunks=1`,
+    `${prefix} [ModelProvider] finish_reason="tool_calls" received, starting grace period: agent=cli, requestId=cb-msg-1, chunks=32, elapsed=5000ms`,
+    `${prefix} [ModelProvider] Stream completed: agent=cli, requestId=cb-msg-1, chunks=33, elapsed=7500ms`,
+    `${prefix} [ModelProvider] First meaningful token received: agent=cli, requestId=cb-msg-2, ttft=3000ms, rawChunks=1`,
+    `${prefix} [ModelProvider] Stream completed: agent=cli, requestId=cb-msg-2, chunks=33, elapsed=7500ms`,
+  ].join("\n") + "\n");
   fs.writeFileSync(
     path.join(cbSessionsDir, `${process.pid}.json`),
     JSON.stringify({
@@ -168,6 +140,26 @@ test("scanCodebuddySession and scanAntigravitySession compute rates and aggregat
           },
         },
       }),
+      JSON.stringify({
+        type: "function_call_result",
+        id: "tool-result",
+        parentId: "a1",
+        sessionId: cbSessionId,
+        timestamp: nowMs + 15_000,
+      }),
+      JSON.stringify({
+        type: "message",
+        role: "assistant",
+        id: "a2",
+        parentId: "tool-result",
+        sessionId: cbSessionId,
+        timestamp: nowMs + 20_000,
+        providerData: {
+          messageId: "cb-msg-2",
+          model: "glm-5.1",
+          rawUsage: { prompt_tokens: 1200, completion_tokens: 200, total_tokens: 1400 },
+        },
+      }),
     ].join("\n") + "\n",
   );
 
@@ -210,16 +202,19 @@ test("scanCodebuddySession and scanAntigravitySession compute rates and aggregat
 
   const cbScanned = await scanCodebuddySession(cbJsonl);
   assert.equal(cbScanned.source, "codebuddy");
-  assert.equal(cbScanned.performance.estimated_tokens_per_second, 50);
+  assert.equal(cbScanned.performance.estimated_tokens_per_second, 125);
+  assert.equal(cbScanned.performance.estimated_duration_ms, 2000);
+  assert.equal(cbScanned.performance.first_response_ms, 3000);
+  assert.equal(cbScanned.performance.estimated_request_count, 1);
 
   const agScanned = await scanAntigravitySession(agTranscript);
   assert.equal(agScanned.source, "antigravity");
-  assert.equal(agScanned.performance.estimated_tokens_per_second, 50);
+  assert.equal(agScanned.performance.estimated_tokens_per_second, null);
 
   const report = await computeProjectTokenRates({
     home,
     env: { HOME: home },
-    now: nowMs,
+    now: nowMs + 30_000,
     activeWindowMinutes: 15,
     recentWindowMinutes: 1440,
   });
@@ -228,6 +223,12 @@ test("scanCodebuddySession and scanAntigravitySession compute rates and aggregat
   assert.equal(report.projects.length, 2);
   const sources = report.by_provider.map((p) => p.source).sort();
   assert.deepEqual(sources, ["antigravity", "codebuddy"]);
+  const codebuddy = report.by_provider.find((p) => p.source === "codebuddy");
+  assert.equal(codebuddy.tokens.total_tokens, 3650);
+  assert.equal(codebuddy.rate.total_tokens_per_second, 1125);
+  assert.equal(report.summary.output_tokens_per_second, 125);
+  assert.equal(report.summary.total_tokens_per_second, 1125);
+  assert.equal(report.by_model.find((row) => row.source === "codebuddy").rate.output_tokens_per_second, 125);
 });
 
 test("classifySessionActivity treats IDLE Antigravity and exited CodeBuddy as not running even when recently touched", () => {

@@ -2255,7 +2255,7 @@ rate.project.reasoning_tokens,dashboard,RatePage,ProjectCard,reasoning_tokens,Re
 rate.project.cost,dashboard,RatePage,ProjectCard,cost,Est. cost,,active
 rate.project.turns_tools,dashboard,RatePage,ProjectCard,turns_tools,{{turns}} turns · {{tools}} tool calls · {{requests}} timed turns,,active
 rate.project.recent_samples,dashboard,RatePage,ProjectCard,recent_samples,Recent request speed trend (tok/s),,active
-rate.project.sample_tooltip,dashboard,RatePage,ProjectCard,sample_tooltip,"{{model}}: {{tps}} tok/s ({{output}} output tokens in {{duration}})",,active
+rate.project.sample_tooltip,dashboard,RatePage,ProjectCard,sample_tooltip,"{{model}}: {{tps}} tok/s ({{output}} tokens streamed in {{duration}})",,active
 rate.project.sessions_toggle_show,dashboard,RatePage,ProjectCard,sessions_toggle_show,Show {{count}} sessions,,active
 rate.project.sessions_toggle_hide,dashboard,RatePage,ProjectCard,sessions_toggle_hide,Hide sessions,,active
 rate.section.projects_title,dashboard,RatePage,Section,projects_title,Project token rate monitor,,active

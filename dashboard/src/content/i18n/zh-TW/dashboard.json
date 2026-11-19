@@ -1182,7 +1182,7 @@
   "rate.project.cost": "預估花費",
   "rate.project.turns_tools": "{{turns}} 輪對話 · {{tools}} 次工具呼叫 · {{requests}} 次計時請求",
   "rate.project.recent_samples": "近期請求產生速率趨勢 (tok/s)",
-  "rate.project.sample_tooltip": "{{model}}: {{tps}} tok/s (輸出 {{output}} tokens，耗時 {{duration}})",
+  "rate.project.sample_tooltip": "{{model}}: {{tps}} tok/s（串流輸出 {{output}} tokens，實際串流時長 {{duration}}）",
   "rate.project.sessions_toggle_show": "展開 {{count}} 個專案工作階段",
   "rate.project.sessions_toggle_hide": "收起專案工作階段",
   "rate.section.projects_title": "專案即時速率監控",

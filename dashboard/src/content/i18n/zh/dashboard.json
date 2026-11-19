@@ -1123,7 +1123,7 @@
   "rate.project.cost": "预估花费",
   "rate.project.turns_tools": "{{turns}} 轮对话 · {{tools}} 次工具调用 · {{requests}} 次计时请求",
   "rate.project.recent_samples": "近期请求生成速率趋势 (tok/s)",
-  "rate.project.sample_tooltip": "{{model}}: {{tps}} tok/s (输出 {{output}} tokens，耗时 {{duration}})",
+  "rate.project.sample_tooltip": "{{model}}: {{tps}} tok/s（流式输出 {{output}} tokens，实际流式时长 {{duration}}）",
   "rate.project.sessions_toggle_show": "展开 {{count}} 个项目会话",
   "rate.project.sessions_toggle_hide": "收起项目会话",
   "rate.section.projects_title": "项目实时速率监控",

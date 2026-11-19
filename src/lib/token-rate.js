@@ -24,9 +24,10 @@ const { discoverT3AntigravityBrainDirs, mergeAntigravityInventories } = require(
 const {
   normalizePerformance,
   mergePerformance,
-  createCodebuddyPerformanceCollector,
+  createStreamingPerformanceCollector,
   createAntigravityPerformanceCollector,
 } = require("./session-performance");
+const { readCodebuddyStreamTimings } = require("./codebuddy-stream-timing");
 const { computeRowCost, getModelPricingInfo } = require("./pricing");
 const { readSqliteJsonRows } = require("./sqlite-reader");
 
@@ -288,7 +289,8 @@ async function scanCodebuddySessionFile(filePath, { env = process.env, defaultMo
 
   const fallbackModel = defaultModel || resolveCodebuddyDefaultModel(env);
   const tokens = emptyTokenTotals();
-  const performanceCollector = createCodebuddyPerformanceCollector();
+  const performanceCollector = createStreamingPerformanceCollector();
+  const timedRequests = [];
   const modelUsageByModel = new Map();
   const usageBuckets = new Map();
   const editTurnsByModel = new Map();
@@ -394,6 +396,10 @@ async function scanCodebuddySessionFile(filePath, { env = process.env, defaultMo
           seenMessageIds.add(entry.id);
         }
         const effectiveModel = candidateModel || (model !== "unknown" ? model : fallbackModel);
+        if (provider?.messageId === messageId && tsMs !== null && !provider.isPartialAborted &&
+            !provider.error && !entry.error && !entry.isApiErrorMessage && !entry.message?.error) {
+          timedRequests.push({ messageId, model: effectiveModel, usage: countedUsage, timestampMs: tsMs });
+        }
         model = effectiveModel;
         currentTurnModel = effectiveModel;
         addTokenTotals(tokens, countedUsage);
@@ -423,16 +429,22 @@ async function scanCodebuddySessionFile(filePath, { env = process.env, defaultMo
         }
       }
     }
-
-    performanceCollector.consume(
-      entry,
-      messageId,
-      countedUsage,
-      candidateModel || (model !== "unknown" ? model : fallbackModel),
-    );
   }
 
   closeTurn();
+  const timings = await readCodebuddyStreamTimings(resolvedPath, timedRequests.map((request) => request.timestampMs));
+  for (const request of timedRequests) {
+    const timing = timings.get(request.messageId);
+    if (!timing) continue;
+    performanceCollector.consumeUsage({
+      ...timing,
+      model: request.model,
+      timestampMs: request.timestampMs,
+      outputTokens: request.usage.output_tokens,
+      reasoningTokens: request.usage.reasoning_output_tokens,
+      totalTokens: request.usage.total_tokens,
+    });
+  }
   const performance = performanceCollector.finish();
   const sessionMeta = sessionMetaById instanceof Map ? sessionMetaById.get(rawSessionId) : null;
   if (!cwd && sessionMeta?.cwd) cwd = sessionMeta.cwd;
@@ -667,7 +679,6 @@ async function scanAntigravitySessionFile(filePath, { summaryById } = {}) {
 
     if (parsed.type !== "PLANNER_RESPONSE") {
       contextTokens += eventContextTokens;
-      performanceCollector.consume(parsed);
       continue;
     }
 
@@ -951,7 +962,15 @@ function computeRecentWindowRate(buckets, nowMs, windowMs = 5 * 60 * 1000) {
   };
 }
 
-function summarizeRateSamples(samples, performance, totalTokens) {
+function streamingPerformance(performance) {
+  if (performance?.sampled_total_tokens > 0) return performance;
+  return normalizePerformance({
+    first_response_total_ms: performance?.first_response_total_ms,
+    first_response_sample_count: performance?.first_response_sample_count,
+  });
+}
+
+function summarizeRateSamples(samples, performance) {
   const normalizedPerf = normalizePerformance(performance);
   const validSamples = (Array.isArray(samples) ? samples : []).filter(
     (s) => Number.isFinite(s?.tokens_per_second) && s.tokens_per_second > 0,
@@ -960,23 +979,20 @@ function summarizeRateSamples(samples, performance, totalTokens) {
   const durationSeconds = normalizedPerf.estimated_duration_ms > 0
     ? normalizedPerf.estimated_duration_ms / 1000
     : 0;
-  const totalTps = durationSeconds > 0 && finite(totalTokens) > 0
-    ? finite(totalTokens) / durationSeconds
+  const totalTps = durationSeconds > 0 && normalizedPerf.sampled_total_tokens > 0
+    ? normalizedPerf.sampled_total_tokens / durationSeconds
     : null;
 
   let latestOutputTps = avgOutputTps;
   let peakOutputTps = avgOutputTps;
   if (validSamples.length > 0) {
-    const recentSlice = validSamples.slice(-3);
+    const recentSlice = validSamples.sort((a, b) => (b.timestamp_ms || 0) - (a.timestamp_ms || 0)).slice(0, 3);
     const recentOut = recentSlice.reduce((sum, s) => sum + finite(s.output_tokens), 0);
     const recentDur = recentSlice.reduce((sum, s) => sum + finite(s.duration_ms), 0);
     if (recentDur > 0 && recentOut > 0) {
       latestOutputTps = recentOut / (recentDur / 1000);
     }
-    peakOutputTps = Math.max(
-      ...validSamples.map((s) => Number(s.tokens_per_second) || 0),
-      avgOutputTps || 0,
-    );
+    peakOutputTps = validSamples.reduce((peak, sample) => Math.max(peak, sample.tokens_per_second), avgOutputTps || 0);
   }
 
   return {
@@ -1133,11 +1149,8 @@ async function computeProjectTokenRates({
       ),
       total_tokens: finite(session.total_tokens ?? session.tokens?.total_tokens),
     };
-    const rateSummary = summarizeRateSamples(
-      session.rate_samples,
-      session.performance,
-      sessionTokens.total_tokens,
-    );
+    const sessionPerformance = streamingPerformance(session.performance);
+    const rateSummary = summarizeRateSamples(session.rate_samples, sessionPerformance);
     const windowRate = computeRecentWindowRate(session.usage_buckets, nowMs, activeWindowMs);
 
     const projectKey = session.project_key || deriveProjectKey(session.project_ref);
@@ -1215,7 +1228,7 @@ async function computeProjectTokenRates({
     project.tool_calls += finite(session.tool_calls);
     project.cost_usd += finite(session.cost_usd);
     addTokenTotals(project.tokens, sessionTokens);
-    project.performance = mergePerformance(project.performance, session.performance);
+    project.performance = mergePerformance(project.performance, sessionPerformance);
     project.recent_tokens += windowRate.recentTokens;
     project.recent_requests += windowRate.recentRequests;
 
@@ -1226,18 +1239,6 @@ async function computeProjectTokenRates({
           source: src,
         });
       }
-    } else if (rateSummary.output_tokens_per_second !== null) {
-      project.samples.push({
-        model: session.model || "unknown",
-        source: src,
-        output_tokens: rateSummary.estimated_output_tokens,
-        total_tokens: sessionTokens.total_tokens,
-        duration_ms: rateSummary.estimated_duration_ms,
-        tokens_per_second: rateSummary.output_tokens_per_second,
-        total_tokens_per_second: rateSummary.total_tokens_per_second || rateSummary.output_tokens_per_second,
-        timestamp_ms: activity.lastActivityMs || null,
-        first_response_ms: rateSummary.first_response_ms,
-      });
     }
 
     project.sessions.push({
@@ -1290,7 +1291,7 @@ async function computeProjectTokenRates({
     }
     addTokenTotals(providerAgg.tokens, sessionTokens);
     providerAgg.cost_usd += finite(session.cost_usd);
-    providerAgg.performance = mergePerformance(providerAgg.performance, session.performance);
+    providerAgg.performance = mergePerformance(providerAgg.performance, sessionPerformance);
     if (Array.isArray(session.rate_samples)) {
       providerAgg.samples.push(...session.rate_samples);
     }
@@ -1328,7 +1329,7 @@ async function computeProjectTokenRates({
       if (activity.status === "running") modelAgg.active_sessions += 1;
       addTokenTotals(modelAgg.tokens, mRow);
       modelAgg.cost_usd += finite(mRow.cost_usd);
-      modelAgg.performance = mergePerformance(modelAgg.performance, mRow.performance);
+      modelAgg.performance = mergePerformance(modelAgg.performance, streamingPerformance(mRow.performance));
     }
   }
 
@@ -1346,11 +1347,7 @@ async function computeProjectTokenRates({
         tokens_per_second: Number(Number(s.tokens_per_second || 0).toFixed(1)),
         total_tokens_per_second: Number(Number(s.total_tokens_per_second || 0).toFixed(1)),
       }));
-      const rateSummary = summarizeRateSamples(
-        project.samples,
-        project.performance,
-        project.tokens.total_tokens,
-      );
+      const rateSummary = summarizeRateSamples(project.samples, project.performance);
       const sortedSources = [...project.sourceTokens.entries()]
         .sort((a, b) => b[1] - a[1])
         .map(([source]) => source);
@@ -1415,7 +1412,7 @@ async function computeProjectTokenRates({
 
   const byProvider = [...providerAggMap.values()]
     .map((agg) => {
-      const rate = summarizeRateSamples(agg.samples, agg.performance, agg.tokens.total_tokens);
+      const rate = summarizeRateSamples(agg.samples, agg.performance);
       const totalInputPool =
         agg.tokens.input_tokens +
         agg.tokens.cached_input_tokens +
@@ -1445,7 +1442,7 @@ async function computeProjectTokenRates({
 
   const byModel = [...modelAggMap.values()]
     .map((agg) => {
-      const rate = summarizeRateSamples([], agg.performance, agg.tokens.total_tokens);
+      const rate = summarizeRateSamples([], agg.performance);
       return {
         source: agg.source,
         model: agg.model,
@@ -1465,26 +1462,11 @@ async function computeProjectTokenRates({
     );
 
   const runningProjects = projects.filter((p) => p.status === "running");
-  const activePerf = mergePerformance(
-    ...(runningProjects.length > 0 ? runningProjects : projects.slice(0, 10)).map((p) => ({
-      estimated_output_tokens: p.rate.estimated_output_tokens,
-      estimated_duration_ms: p.rate.estimated_duration_ms,
-      estimated_request_count: p.rate.estimated_request_count,
-      first_response_total_ms:
-        p.rate.first_response_ms !== null && p.rate.first_response_sample_count > 0
-          ? p.rate.first_response_ms * p.rate.first_response_sample_count
-          : 0,
-      first_response_sample_count: p.rate.first_response_sample_count,
-    })),
-  );
-  const allSamples = (runningProjects.length > 0 ? runningProjects : projects.slice(0, 10)).flatMap(
-    (p) => p.samples || [],
-  );
-  const totalActiveTokens = (runningProjects.length > 0 ? runningProjects : projects.slice(0, 10)).reduce(
-    (sum, p) => sum + finite(p.tokens.total_tokens),
-    0,
-  );
-  const globalRate = summarizeRateSamples(allSamples, activePerf, totalActiveTokens);
+  const summaryProjects = runningProjects.length > 0 ? runningProjects : projects.slice(0, 10);
+  const summaryIds = new Set(summaryProjects.map((project) => project.project_id));
+  const summaryRows = [...projectsMap.values()].filter((row) => summaryIds.has(row.project_id));
+  const activePerf = mergePerformance(...summaryRows.map((row) => row.performance));
+  const globalRate = summarizeRateSamples(summaryRows.flatMap((row) => row.samples), activePerf);
   const combinedBurnTpm = runningProjects.reduce(
     (sum, p) => sum + Number(p.rate.tokens_per_minute || 0),
     0,
