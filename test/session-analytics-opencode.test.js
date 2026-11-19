@@ -2,6 +2,7 @@
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const { test } = require("node:test");
@@ -10,6 +11,7 @@ try { ({ DatabaseSync } = require("node:sqlite")); } catch { /* Node 20 */ }
 const sqliteTest = DatabaseSync ? test : test.skip;
 const { scanOpencodeSessions, discoverSessionFiles, buildSessionAnalytics, listSessionsForBrowser, summarizeSessions, sessionsToCsv, resumeCommandFor, resolveSessionSidecarPath } = require("../src/lib/session-analytics");
 const { readOpencodeDbMessages, parseOpencodeDbIncremental } = require("../src/lib/rollout");
+const { computeProjectTokenRates } = require("../src/lib/token-rate");
 const T0 = Date.UTC(2026, 9, 8, 10);
 const SECRET = "private prompt and assistant body never retained";
 
@@ -28,8 +30,8 @@ function session(f, id, { parent = null, title = "Agent-authored title" } = {}) 
   f.db.prepare(`INSERT INTO ${f.sessionTable} VALUES (?, ?, ?, ?, ?, ?)`)
     .run(id, parent, title, "C:\\repo\\opencode-app", T0, T0 + 10000);
 }
-function message(f, { table = "message", id = "assistant", sessionId = "ses_root", role = "assistant", start = T0, end = start + 10000, model = "claude-sonnet-4-5", tokens = { input: 100, output: 50, reasoning: 10, cache: { read: 25, write: 5 } }, nested = table === "session_message" } = {}) {
-  const data = { role, content: SECRET, parts: [{ text: SECRET }], time: { created: start, completed: end }, path: { cwd: "/repo/fallback" } };
+function message(f, { table = "message", id = "assistant", sessionId = "ses_root", role = "assistant", start = T0, end = start + 10000, model = "claude-sonnet-4-5", tokens = { input: 100, output: 50, reasoning: 10, cache: { read: 25, write: 5 } }, nested = table === "session_message", firstToken, streamed } = {}) {
+  const data = { role, content: SECRET, parts: [{ text: SECRET }], time: { created: start, completed: end, firstToken, streamed }, path: { cwd: "/repo/fallback" } };
   if (role === "assistant") {
     Object.assign(data, { tokens }, nested ? { model: { id: model, providerID: "anthropic" } } : { modelID: model, providerID: "anthropic" });
   }
@@ -38,6 +40,60 @@ function message(f, { table = "message", id = "assistant", sessionId = "ses_root
   values.push(JSON.stringify(data));
   f.db.prepare(`INSERT INTO ${table} VALUES (${values.map(() => "?").join(",")})`).run(...values);
 }
+
+sqliteTest("rate endpoint prefers official OpenCode timing and falls back to the metadata-only SQLite projection", async (t) => {
+  const f = fixture(t, { v1: false, v2: true });
+  const table = "session_message";
+  const usage = { input: 6_000, output: 21, reasoning: 34, cache: { read: 500 } };
+  session(f, "ses_root");
+  message(f, { table, role: "user", id: "user", start: T0 - 10 });
+  message(f, { table, tokens: usage, firstToken: T0 + 4_000, streamed: T0 + 5_046, end: T0 + 5_050 });
+  message(f, { table, role: "idle", id: "idle", start: T0 + 5_051 });
+  f.db.close();
+
+  const stateDir = path.join(f.home, "state", "opencode");
+  fs.mkdirSync(stateDir, { recursive: true });
+  const registry = path.join(stateDir, "service.json");
+  const requests = [];
+  const server = http.createServer((req, res) => {
+    requests.push(req.url);
+    if (req.headers.authorization !== `Basic ${Buffer.from("opencode:fixture-password").toString("base64")}`) {
+      res.writeHead(401).end();
+      return;
+    }
+    res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({
+      data: [
+        { type: "idle", id: "idle", time: { created: T0 + 5_051 } },
+        { type: "assistant", id: "assistant", time: { created: T0, firstToken: T0 + 4_561, streamed: T0 + 5_046, completed: T0 + 5_050 },
+          tokens: usage, model: { id: "claude-sonnet-4-5" }, parts: [{ text: SECRET }] },
+        { type: "user", id: "user", time: { created: T0 - 10 }, content: SECRET },
+      ],
+      cursor: {},
+    }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  fs.writeFileSync(registry, JSON.stringify({ url: `http://127.0.0.1:${server.address().port}`, password: "fixture-password" }));
+  const options = { home: f.home, env: { XDG_STATE_HOME: path.dirname(stateDir) }, now: T0 + 15_000, activeWindowMinutes: 5 };
+  const report = await computeProjectTokenRates(options);
+  const rate = report.projects[0].sessions[0].rate;
+  assert.match(requests[0], /^\/api\/session\/ses_root\/message\?/);
+  assert.equal(rate.native_source, "opencode_api");
+  assert.equal(rate.native_tokens_per_second, 113.4);
+  assert.equal(rate.output_tokens_per_second, 111.3);
+  assert.equal(report.summary.first_response_ms, 4_561);
+  assert.equal(report.summary.total_tokens_per_second, 21.9);
+  assert.doesNotMatch(JSON.stringify(report), /fixture-password|private prompt|request_id/);
+
+  fs.unlinkSync(registry);
+  const fallback = await computeProjectTokenRates(options);
+  assert.equal(fallback.projects[0].sessions[0].rate.native_source, "opencode_db");
+  assert.equal(fallback.projects[0].sessions[0].rate.native_tokens_per_second, 52.6);
+  const historical = await computeProjectTokenRates({ ...options, now: T0 + 600_000 });
+  assert.equal(historical.summary.output_tokens_per_second, null);
+  assert.equal(historical.summary.total_tokens_per_second, null);
+  assert.equal(historical.projects[0].tokens.total_tokens, 6_555);
+});
 
 for (const [name, options, table] of [
   ["v1 with an empty v2 table", { v2: true }, "message"],

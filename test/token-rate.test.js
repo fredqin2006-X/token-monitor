@@ -13,6 +13,7 @@ const {
   scanAntigravitySessionFile,
   computeProjectTokenRates,
   classifySessionActivity,
+  summarizeRateSamples,
 } = require("../src/lib/token-rate");
 const {
   scanCodebuddySession,
@@ -63,7 +64,7 @@ test("Antigravity does not infer output time from request or transcript boundari
   collector.consume(output, { outputTokens: 300, dbTurn: { durationMs: 900, timeToFirstTokenMs: 900 } });
   collector.consume({ ...output, status: "CANCELLED" }, { outputTokens: 300, dbTurn: { streamingDurationMs: 5000, timeToFirstTokenMs: 300 } });
   const { performance, samples } = collector.finish();
-  assert.deepEqual(samples, []);
+  assert.deepEqual(samples.map((sample) => sample.timing), ["first_token"]);
   assert.equal(performance.estimated_tokens_per_second, null);
   assert.equal(performance.first_response_ms, 900);
 });
@@ -225,10 +226,26 @@ test("scanCodebuddySession and scanAntigravitySession compute rates and aggregat
   assert.deepEqual(sources, ["antigravity", "codebuddy"]);
   const codebuddy = report.by_provider.find((p) => p.source === "codebuddy");
   assert.equal(codebuddy.tokens.total_tokens, 3650);
-  assert.equal(codebuddy.rate.total_tokens_per_second, 1125);
-  assert.equal(report.summary.output_tokens_per_second, 125);
-  assert.equal(report.summary.total_tokens_per_second, 1125);
-  assert.equal(report.by_model.find((row) => row.source === "codebuddy").rate.output_tokens_per_second, 125);
+  assert.equal(codebuddy.rate.total_tokens_per_second, 4.1);
+  assert.equal(report.summary.output_tokens_per_second, 124.5);
+  assert.equal(report.summary.total_tokens_per_second, 11.2);
+  assert.equal(report.summary.sample_count, 1);
+  assert.equal(report.by_model.find((row) => row.source === "codebuddy").rate.output_tokens_per_second, 124.5);
+});
+
+test("window aggregation keeps estimated requests out of decode rate and uses wall time for throughput", () => {
+  const rate = summarizeRateSamples([
+    { timestamp_ms: 100, duration_ms: 1_000, output_tokens: 101, first_response_ms: 900 },
+    { timestamp_ms: 200, duration_ms: 3_000, output_tokens: 151, first_response_ms: 1_100 },
+    { timestamp_ms: 300, duration_ms: 5_000, output_tokens: 200, timing: "estimated" },
+  ], 60_000, 300_000);
+  assert.equal(rate.output_tokens_per_second, 62.5);
+  assert.equal(rate.peak_tokens_per_second, 100);
+  assert.equal(rate.total_tokens_per_second, 200);
+  assert.equal(rate.end_to_end_tokens_per_second, 40);
+  assert.equal(rate.end_to_end_estimated, true);
+  assert.equal(rate.first_response_ms, 1_000);
+  assert.equal(rate.first_response_sample_count, 2);
 });
 
 test("classifySessionActivity treats IDLE Antigravity and exited CodeBuddy as not running even when recently touched", () => {

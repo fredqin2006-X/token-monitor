@@ -17,6 +17,10 @@ export interface RateMetrics {
   latest_tokens_per_second: number | null;
   peak_tokens_per_second: number | null;
   total_tokens_per_second: number | null;
+  end_to_end_tokens_per_second?: number | null;
+  end_to_end_estimated?: boolean;
+  native_tokens_per_second?: number;
+  native_source?: "opencode_api" | "opencode_db";
   tokens_per_minute?: number;
   requests_per_minute?: number;
   estimated_output_tokens: number;
@@ -31,10 +35,10 @@ export interface RateSample {
   model: string;
   source: string;
   output_tokens: number;
-  total_tokens: number;
   duration_ms: number;
   tokens_per_second: number;
-  total_tokens_per_second: number;
+  total_tokens?: number;
+  total_tokens_per_second?: number;
 }
 
 export interface ProjectRateSession {

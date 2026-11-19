@@ -79,9 +79,17 @@ function formatRateNumber(value, digits = 1, formatCount = formatCompactNumber) 
   return num.toFixed(digits);
 }
 
+function formatEndToEndRate(rate, formatTokens) {
+  const value = formatRateNumber(rate.end_to_end_tokens_per_second, 1, formatTokens);
+  const params = { value, unit: copy("rate.unit.tps") };
+  return rate.end_to_end_estimated
+    ? copy("rate.project.e2e_estimate", params)
+    : copy("rate.project.e2e_rate", params);
+}
+
 function formatLatencyMs(ms) {
   const num = Number(ms);
-  if (!Number.isFinite(num) || num <= 0) return copy("rate.unit.none");
+  if (ms == null || !Number.isFinite(num) || num < 0) return copy("rate.unit.none");
   if (1000 <= num) {
     return copy("rate.unit.seconds", { value: (num / 1000).toFixed(2) });
   }
@@ -199,6 +207,7 @@ function ProjectRateCard({ project, currency, exchangeRate, formatTokens, format
   const rate = project.rate || {};
   const tokens = project.tokens || {};
   const hasOutputRate = 0 < Number(rate.output_tokens_per_second);
+  const hasEndToEndRate = 0 < Number(rate.end_to_end_tokens_per_second);
   const hasPeakRate = 0 < Number(rate.peak_tokens_per_second);
   const hasThroughput = 0 < Number(rate.total_tokens_per_second);
   const hasBurnRate = 0 < Number(rate.tokens_per_minute);
@@ -319,6 +328,11 @@ function ProjectRateCard({ project, currency, exchangeRate, formatTokens, format
               </span>
             ) : null}
           </div>
+          {hasEndToEndRate ? (
+            <div className="mt-1 text-[11px] text-oai-gray-500 dark:text-oai-gray-400">
+              {formatEndToEndRate(rate, formatTokens)}
+            </div>
+          ) : null}
         </div>
 
         <div className="min-w-0 rounded-lg border border-oai-gray-100 bg-oai-gray-50/60 p-2.5 sm:p-3 dark:border-oai-gray-800 dark:bg-oai-gray-950/40">
@@ -474,7 +488,18 @@ function ProjectRateCard({ project, currency, exchangeRate, formatTokens, format
         <div className="mt-3 divide-y divide-oai-gray-100 rounded-lg border border-oai-gray-100 bg-oai-gray-50/40 dark:divide-oai-gray-800 dark:border-oai-gray-800 dark:bg-oai-gray-950/30">
           {project.sessions.map((session) => {
             const sRate = session.rate || {};
-            const sHasOutput = 0 < Number(sRate.output_tokens_per_second);
+            let rateLabel = copy("rate.unit.none");
+            let rateSource;
+            if (0 < Number(sRate.native_tokens_per_second)) {
+              rateLabel = copy("rate.session.native_rate", { value: formatRateNumber(sRate.native_tokens_per_second, 1, formatTokens) });
+              rateSource = sRate.native_source === "opencode_api"
+                ? copy("rate.session.native_api")
+                : copy("rate.session.native_db");
+            } else if (0 < Number(sRate.output_tokens_per_second)) {
+              rateLabel = `${formatRateNumber(sRate.latest_tokens_per_second ?? sRate.output_tokens_per_second, 1, formatTokens)} ${copy("rate.unit.tps")}`;
+            } else if (0 < Number(sRate.end_to_end_tokens_per_second)) {
+              rateLabel = formatEndToEndRate(sRate, formatTokens);
+            }
             return (
               <div
                 key={session.session_hash}
@@ -496,10 +521,8 @@ function ProjectRateCard({ project, currency, exchangeRate, formatTokens, format
                   </span>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 pl-6 tabular-nums text-oai-gray-600 sm:justify-end sm:pl-0 dark:text-oai-gray-300">
-                  <span className="font-semibold text-oai-black dark:text-white">
-                    {sHasOutput
-                      ? `${formatRateNumber(sRate.latest_tokens_per_second ?? sRate.output_tokens_per_second, 1, formatTokens)} ${copy("rate.unit.tps")}`
-                      : copy("rate.unit.none")}
+                  <span className="font-semibold text-oai-black dark:text-white" title={rateSource}>
+                    {rateLabel}
                   </span>
                   <span title={formatTokensTooltip(session.tokens?.total_tokens || 0)}>
                     {formatTokens(session.tokens?.total_tokens || 0)}

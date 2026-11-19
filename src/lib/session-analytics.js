@@ -33,6 +33,7 @@ const { listClaudeProjectFiles, listRolloutFilesDeep, claudeMessageDedupKey, nor
 const { parseCodexRolloutFile } = require("./codex-rollout-parser");
 const { computeRowCost, getModelPricingInfo, getPricingRevision } = require("./pricing");
 const { normalizePerformance, mergePerformance, createClaudePerformanceCollector, createCodexPerformanceCollector, createZcodePerformanceCollector } = require("./session-performance");
+const { collectOpencodeRates } = require("./opencode-rate");
 const { readSqliteJsonRows, readSqliteJsonRowsAsync } = require("./sqlite-reader");
 const { resolveZcodeNativeDbPath, resolveInstallPaths } = require("./install-resolver");
 const { readCursorStateSummary } = require("./cursor-store");
@@ -110,7 +111,8 @@ const {
 // ~/.pi/agent/sessions/**/*.jsonl, with pi-subagents fork transcripts folded into
 // their parent session. A new source always takes the next number: bumping the
 // version invalidates every cached row, so one must never be reused.
-const SIDECAR_VERSION = 32;
+// v33 retains metadata-only request timing for the local rate page.
+const SIDECAR_VERSION = 33;
 // Invalidate only Codex token summaries; other sources keep their cached rows.
 const CODEX_USAGE_VERSION = 1;
 const EDIT_TOOLS = new Set([
@@ -747,6 +749,7 @@ async function scanClaudeSession(filePath, { trackerDir, legacyOffsets = {} } = 
     })),
     usage_buckets: [...usageBuckets.values()],
     performance: performance.performance,
+    rate_samples: performance.samples,
     ...bounds,
     turns,
     edit_turns: editTurns,
@@ -935,6 +938,7 @@ async function scanCodexSession(filePath) {
     model_usage: modelUsage,
     usage_buckets: [...usageBuckets.values()],
     performance: performance.performance,
+    rate_samples: performance.samples,
     ...signals.bounds,
     turns: signals.turns || finite(parsed.turnCount),
     edit_turns: signals.editTurns,
@@ -1289,9 +1293,11 @@ async function readOpencodeSessionInputs(dbPath) {
         'providerID', json_extract(data, '$.providerID'),
         'model', json_extract(data, '$.model'),
         'time', json_extract(data, '$.time'),
+         'error', json_type(data, '$.error') IN ('object', 'text', 'true'),
+         'finish', json_extract(data, '$.finish'),
         'path', json_object('cwd', json_extract(data, '$.path.cwd'))
       ) END AS metadata
-      FROM ${table} WHERE ${role} IN ('user', 'assistant') ORDER BY time_created ASC, id ASC`));
+       FROM ${table} WHERE ${role} IN ('user', 'assistant', 'synthetic', 'idle') ORDER BY time_created ASC, id ASC`));
   }
   return { sessionRows, messages };
 }
@@ -1363,12 +1369,18 @@ async function scanOpencodeSessions(dbPaths) {
       if (!sessionId) continue;
       let group = groups.get(sessionId);
       if (!group) {
-        group = { bounds: emptyBounds(), tokens: emptyTotals(), models: new Map(), buckets: new Map(), spans: [], turns: 0, calls: 0, cwd: null };
+        group = { bounds: emptyBounds(), tokens: emptyTotals(), models: new Map(), buckets: new Map(), spans: [], messages: [], turns: 0, calls: 0, cwd: null };
         groups.set(sessionId, group);
       }
+      const owner = fingerprint && owners.get(fingerprint);
+      if (owner && owner !== sessionId) continue;
+      group.messages.push({
+        ...data, id: row.id, type: row.role,
+        time: { ...data.time, created: data.time?.created ?? row.time_created },
+      });
+      if (row.role === "idle" || row.role === "synthetic") continue;
+
       if (delta && delta.total_tokens > 0) {
-        const owner = fingerprint && owners.get(fingerprint);
-        if (owner && owner !== sessionId) continue;
         const model = normalizeSessionModel(normalizeOpencodeModelFields(data).modelId) || "unknown";
         addTotals(group.tokens, delta);
         const usage = group.models.get(model) || { model, ...emptyTotals(), usage_events: 0 };
@@ -1411,6 +1423,7 @@ async function scanOpencodeSessions(dbPaths) {
         else { activeMs += interval[1] - interval[0]; interval = [...span]; }
       }
       if (interval) activeMs += interval[1] - interval[0];
+      const rate = collectOpencodeRates(group.messages);
       records.push(finalizeRecord({
         version: SIDECAR_VERSION,
         session_hash: sessionHash("opencode", sessionId), session_id: sessionId,
@@ -1419,6 +1432,7 @@ async function scanOpencodeSessions(dbPaths) {
         project_key: projectKey(cwd && cwd.replace(/\\/g, "/"), paths[0]), project_ref: cwd || null,
         model: modelUsage.length > 1 ? "mixed" : (modelUsage[0]?.model || "unknown"),
         model_usage: modelUsage, usage_buckets: [...group.buckets.values()],
+        rate_samples: rate.samples, native_rate: rate.nativeRate,
         ...group.bounds, active_ms: activeMs, tokens: group.tokens,
         turns: group.turns, edit_turns: 0, retry_turns: 0,
         usage_events: group.calls, model_calls: group.calls,
@@ -1655,6 +1669,7 @@ function buildZcodeSessionRecords(inputs, displayPath) {
       model: normalizeSessionModel(row.model_id) || "unknown",
       outputTokens: finite(row.output_tokens),
       durationMs: finite(row.duration_ms),
+      timestampMs: requestStartMs > 0 ? requestStartMs + finite(row.duration_ms) : null,
       timeToFirstTokenMs: typeof row.time_to_first_token_ms === "number" ? row.time_to_first_token_ms : undefined,
     });
   }
@@ -1822,6 +1837,7 @@ function buildZcodeSessionRecords(inputs, displayPath) {
       error_count: signals ? signals.errorCount : 0,
       compaction_count: signals ? signals.compactionCount : 0,
       performance: finished.performance,
+      rate_samples: finished.samples,
       provenance: {
         source: "local-session-log",
         confidence: "observed",
@@ -3070,7 +3086,7 @@ function projectModelUsageForBrowser(rows, includeModelDetail) {
   ));
 }
 
-function toSessionBrowserRow(row, { includeBuckets = true, includeModelDetail = true } = {}) {
+function toSessionBrowserRow(row, { includeBuckets = true, includeModelDetail = true, includeRateSamples = false } = {}) {
   const tokens = row.tokens && typeof row.tokens === "object" ? row.tokens : {};
   return {
     session_hash: row.session_hash,
@@ -3098,6 +3114,7 @@ function toSessionBrowserRow(row, { includeBuckets = true, includeModelDetail = 
     model: row.model,
     model_usage: projectModelUsageForBrowser(modelUsageForAggregation(row), includeModelDetail),
     ...(includeBuckets && Array.isArray(row.usage_buckets) ? { usage_buckets: row.usage_buckets } : {}),
+    ...(includeRateSamples ? { rate_samples: row.rate_samples || [], native_rate: row.native_rate || null } : {}),
     performance: normalizePerformance(row.performance),
     started_at: row.started_at || null,
     ended_at: row.ended_at || null,
@@ -3170,6 +3187,9 @@ function mergeSessionFragments(rows) {
     addTotals(cur.tokens, row.tokens);
     if (Array.isArray(row.usage_buckets)) {
       cur.usage_buckets = [...(cur.usage_buckets || []), ...row.usage_buckets];
+    }
+    if (Array.isArray(row.rate_samples)) {
+      cur.rate_samples = [...(cur.rate_samples || []), ...row.rate_samples];
     }
     cur.model_usage = normalizeModelUsageRows([
       ...(cur.model_usage || []),
@@ -3389,7 +3409,7 @@ function buildSessionBrowserFacets(rows) {
 // summarizeSessions (cloud/CSV safe), this retains session_id + project_ref so
 // the UI can offer one-click resume. Callers must only expose it over the
 // local API.
-function listSessionsForBrowser(sessions, { from = "", to = "", limit = 0, includeBuckets = true, includeModelDetail = true, timeZone, offsetMinutes } = {}) {
+function listSessionsForBrowser(sessions, { from = "", to = "", limit = 0, includeBuckets = true, includeModelDetail = true, includeRateSamples = false, timeZone, offsetMinutes } = {}) {
   const context = { timeZone, offsetMinutes };
   // Only sessions that actually spent tokens are worth listing. This drops
   // two kinds of noise: non-session logs under ~/.claude/projects
@@ -3413,7 +3433,7 @@ function listSessionsForBrowser(sessions, { from = "", to = "", limit = 0, inclu
     returned_count: limited.length,
     skipped_files: finite(sessions?.skippedFiles),
     facets,
-    sessions: limited.map((row) => toSessionBrowserRow(row, { includeBuckets, includeModelDetail })),
+    sessions: limited.map((row) => toSessionBrowserRow(row, { includeBuckets, includeModelDetail, includeRateSamples })),
     provenance: {
       source: "local-session-log",
       confidence: "observed",

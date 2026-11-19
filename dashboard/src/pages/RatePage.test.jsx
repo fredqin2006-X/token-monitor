@@ -74,6 +74,9 @@ vi.mock("../lib/copy", () => {
       if (key === "rate.section.projects_count") {
         return `${vars.count} projects`;
       }
+      if (key === "rate.session.native_rate") return `${vars.value} tok/s · OpenCode`;
+      if (key === "rate.project.e2e_estimate") return `End-to-end estimate ${vars.value} ${vars.unit}`;
+      if (key === "rate.unit.tps") return "tokens/sec";
       return key;
     },
   };
@@ -297,6 +300,23 @@ describe("RatePage", () => {
   beforeEach(() => {
     mockGetTokenRate.mockReset();
     mockGetTokenRate.mockResolvedValue(SAMPLE_RESPONSE);
+  });
+
+  it("shows OpenCode's native rate in the session and keeps fallback estimates labeled", async () => {
+    const project = structuredClone(SAMPLE_RESPONSE.projects[0]);
+    project.rate.end_to_end_tokens_per_second = 10.9;
+    project.rate.end_to_end_estimated = true;
+    Object.assign(project.sessions[0].rate, {
+      native_tokens_per_second: 113.4,
+      native_source: "opencode_api",
+      output_tokens_per_second: 111.3,
+    });
+    mockGetTokenRate.mockResolvedValue({ ...SAMPLE_RESPONSE, projects: [project] });
+    render(<RatePage />);
+
+    const native = await screen.findByText("113.4 tok/s · OpenCode");
+    expect(native).toHaveAttribute("title", "rate.session.native_api");
+    expect(screen.getByText("End-to-end estimate 10.9 tokens/sec")).toBeInTheDocument();
   });
 
   it("renders running CodeBuddy and Antigravity projects without PID, filters by provider, and follows settings Wan/Yi units", async () => {

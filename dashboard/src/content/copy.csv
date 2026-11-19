@@ -2207,8 +2207,8 @@ cloud.order_cancel.pending_label,dashboard,Cloud,CancelPendingOrder,pending_labe
 cloud.order_cancel.unverified_label,dashboard,Cloud,CancelPendingOrder,unverified_label,Verification required,Unconfirmed request is not proof of accepted cancellation,active
 cloud.order_cancel.unknown,dashboard,Cloud,CancelPendingOrder,unknown,Cancellation status is unconfirmed. Do not pay through old links or create another order. Check cancellation status again; code redemption may remain unavailable until verified.,Unconfirmed request is not proof of accepted cancellation,active
 nav.rate,core,global,sidebar,nav_item,Rate,,active
-rate.page.subtitle,dashboard,RatePage,Header,subtitle,Real-time token generation speed and throughput across active and recent local projects,,active
-rate.live.polling,dashboard,RatePage,Header,polling,Live {{seconds}}s,,active
+rate.page.subtitle,dashboard,RatePage,Header,subtitle,Token generation and usage across local projects in the selected time window,,active
+rate.live.polling,dashboard,RatePage,Header,polling,Refresh every {{seconds}}s,,active
 rate.live.paused,dashboard,RatePage,Header,paused,Paused,,active
 rate.live.toggle_aria,dashboard,RatePage,Header,toggle_aria,Toggle live auto-refresh,,active
 rate.refresh.button,dashboard,RatePage,Header,refresh,Refresh,,active
@@ -2223,12 +2223,12 @@ rate.filter.status_recent,dashboard,RatePage,Controls,status_recent,Recent (24h)
 rate.filter.search_placeholder,dashboard,RatePage,Controls,search_placeholder,"Filter by project, path, session title, or model…",,active
 rate.summary.running_projects,dashboard,RatePage,Summary,running_projects,Running projects,,active
 rate.summary.running_projects_sub,dashboard,RatePage,Summary,running_projects_sub,{{sessions}} active sessions · {{total}} tracked projects,,active
-rate.summary.output_speed,dashboard,RatePage,Summary,output_speed,Output token rate,,active
+rate.summary.output_speed,dashboard,RatePage,Summary,output_speed,Recent generation rate,,active
 rate.summary.output_speed_sub,dashboard,RatePage,Summary,output_speed_sub,Avg {{avg}} tok/s · Peak {{peak}} tok/s,,active
-rate.summary.total_throughput,dashboard,RatePage,Summary,total_throughput,Context throughput,,active
+rate.summary.total_throughput,dashboard,RatePage,Summary,total_throughput,Window token throughput,,active
 rate.summary.total_throughput_sub,dashboard,RatePage,Summary,total_throughput_sub,Burn rate {{tpm}} tok/min,,active
 rate.summary.first_response,dashboard,RatePage,Summary,first_response,Avg first token latency,,active
-rate.summary.first_response_sub,dashboard,RatePage,Summary,first_response_sub,{{samples}} timed requests,,active
+rate.summary.first_response_sub,dashboard,RatePage,Summary,first_response_sub,{{samples}} first-token samples,,active
 rate.unit.tps,dashboard,RatePage,Units,tps,tokens/sec,,active
 rate.unit.tpm,dashboard,RatePage,Units,tpm,tokens/min,,active
 rate.unit.seconds,dashboard,RatePage,Units,seconds,{{value}}s,,active
@@ -2240,10 +2240,15 @@ rate.status.recent,dashboard,RatePage,Status,recent,Recent,,active
 rate.status.idle,dashboard,RatePage,Status,idle,Idle,,active
 rate.badge.sessions_count,dashboard,RatePage,Badge,sessions_count,{{active}}/{{total}} active,,active
 rate.badge.sessions_total,dashboard,RatePage,Badge,sessions_total,{{total}} sessions,,active
-rate.project.latest_speed,dashboard,RatePage,ProjectCard,latest_speed,Current output rate,,active
+rate.project.latest_speed,dashboard,RatePage,ProjectCard,latest_speed,Recent generation rate,,active
 rate.project.avg_speed,dashboard,RatePage,ProjectCard,avg_speed,Avg output rate,,active
 rate.project.peak_speed,dashboard,RatePage,ProjectCard,peak_speed,Peak output rate,,active
-rate.project.total_throughput,dashboard,RatePage,ProjectCard,total_throughput,Total throughput,,active
+rate.project.total_throughput,dashboard,RatePage,ProjectCard,total_throughput,Window throughput,,active
+rate.project.e2e_rate,dashboard,RatePage,ProjectCard,e2e_rate,End-to-end {{value}} {{unit}},,active
+rate.project.e2e_estimate,dashboard,RatePage,ProjectCard,e2e_estimate,End-to-end estimate {{value}} {{unit}},,active
+rate.session.native_rate,dashboard,RatePage,ProjectCard,native_rate,{{value}} tok/s · OpenCode,,active
+rate.session.native_api,dashboard,RatePage,ProjectCard,native_api,OpenCode native rate from its local API,,active
+rate.session.native_db,dashboard,RatePage,ProjectCard,native_db,OpenCode native rate from its local session database,,active
 rate.project.burn_rate,dashboard,RatePage,ProjectCard,burn_rate,Burn rate,,active
 rate.project.first_token,dashboard,RatePage,ProjectCard,first_token,First token,,active
 rate.project.cache_hit,dashboard,RatePage,ProjectCard,cache_hit,Cache hit,,active
@@ -2261,13 +2266,13 @@ rate.project.sessions_toggle_hide,dashboard,RatePage,ProjectCard,sessions_toggle
 rate.section.projects_title,dashboard,RatePage,Section,projects_title,Project token rate monitor,,active
 rate.section.projects_count,dashboard,RatePage,Section,projects_count,{{count}} projects,,active
 rate.section.providers_title,dashboard,RatePage,Section,providers_title,Client & model speed comparison,,active
-rate.section.providers_subtitle,dashboard,RatePage,Section,providers_subtitle,"Adapted rate calculator covering CodeBuddy, Antigravity, Claude Code, Codex, and local CLI tools",,active
+rate.section.providers_subtitle,dashboard,RatePage,Section,providers_subtitle,"Generation rate uses first-to-last token timing. Window throughput measures input, cache, and generated tokens per wall-clock second.",,active
 rate.table.provider,dashboard,RatePage,Table,provider,Client,,active
 rate.table.model,dashboard,RatePage,Table,model,Model,,active
 rate.table.active_sessions,dashboard,RatePage,Table,active_sessions,Active / Total,,active
 rate.table.avg_output_rate,dashboard,RatePage,Table,avg_output_rate,Avg output rate,,active
 rate.table.peak_output_rate,dashboard,RatePage,Table,peak_output_rate,Peak rate,,active
-rate.table.total_throughput,dashboard,RatePage,Table,total_throughput,Total throughput,,active
+rate.table.total_throughput,dashboard,RatePage,Table,total_throughput,Window throughput,,active
 rate.table.first_token,dashboard,RatePage,Table,first_token,First token,,active
 rate.table.cache_hit,dashboard,RatePage,Table,cache_hit,Cache hit,,active
 rate.table.total_tokens,dashboard,RatePage,Table,total_tokens,Total tokens,,active

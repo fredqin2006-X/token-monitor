@@ -25,9 +25,17 @@ git diff --stat upstream/main HEAD
 
 ## 速率口径与验证
 
-输出速率为可计时请求的生成 Token 总数除以对应的流式时长。CodeBuddy 通过消息 ID 将会话用量与运行日志配对，从首个有效 Token 计到工具调度前的输出结束标记。Antigravity 使用数据库记录的流式时长。首 Token 等待单独显示。工具执行与请求之间的空闲时间排除在分母之外。源日志只能提供整段流式时间时，精确到每两个输出块之间的等待无法单独扣除。
+跨客户端比较采用 [vLLM 的 TPOT 定义](https://docs.vllm.ai/en/stable/benchmarking/cli/)。每个有效流式请求贡献 `生成 Token 数 − 1` 和首末 Token 间隔。平均值用两项各自求和后相除，近期值取最近三个完成样本，峰值取单请求最大值。速率页每 5 秒刷新完成样本。首 Token 延迟单独统计，并显示有该数据的样本数。
 
-速率页用 `—` 表示缺少可用计时。此类请求仍计入用量、费用及窗口消耗。上下文吞吐只使用有流式计时的请求的总 Token。
+窗口吞吐用所选 5／15／60 分钟内记录的输入、缓存和生成用量除以窗口长度，包含缺少请求计时的数据。用量按已有分钟桶统计。只有请求起止时间时，卡片展示端到端输出速率。日志推算的端到端速率带估算标记。缺少相应计时时显示 `—`。 [NVIDIA AIPerf 指标口径](https://docs.nvidia.com/aiperf/v0.12.0/reference/ai-perf-metrics-reference)
+
+| 本机客户端 | 采集来源 |
+| --- | --- |
+| OpenCode 2.3.2 | 优先读取官方本机 API 的消息计时与用量，服务不可用时使用 SQLite 同名字段。会话行按对应轮次复算 TUI 原生速率，跨客户端比较用 TPOT。 [OpenCode API](https://opencode.ai/docs/api) · [原生公式](https://github.com/anomalyco/opencode/blob/v2.3.2/packages/util/src/session-turn.ts#L31-L50) |
+| Codex 0.166.0 | App Server 提供线程用量和流事件。已在运行的独立会话从本机 rollout 读取可用的官方首 Token 字段，并用日志边界估算端到端输出速率。 [App Server 文档](https://developers.openai.com/codex/app-server/) |
+| Claude Code 2.1.327 | 官方 OpenTelemetry 可导出请求耗时、首 Token 延迟和输出用量，需要事先启用。现有独立会话从 transcript 边界估算端到端输出速率。 [Claude Code 监控文档](https://code.claude.com/docs/en/monitoring-usage) |
+| CodeBuddy 2.185.0 | 官方流输出适用于调用方启动的 print 模式。已有交互会话通过消息 ID 关联用量与本机日志，从首个有效 Token 计到输出结束标记。 [CodeBuddy CLI 文档](https://www.codebuddy.ai/docs/cli/cli-reference) |
+| Antigravity CLI 1.5.12 | 官方 CLI 和 SDK 提供自己的交互与程序化入口。已有会话使用本机数据库记录的首 Token 和流式时长。 [Antigravity CLI 文档](https://antigravity.google/docs/cli/reference/) |
 
 ```bash
 node --test test/token-rate.test.js test/session-performance.test.js

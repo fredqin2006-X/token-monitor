@@ -23,10 +23,10 @@ const {
 const { discoverT3AntigravityBrainDirs, mergeAntigravityInventories } = require("./antigravity-discovery");
 const {
   normalizePerformance,
-  mergePerformance,
   createStreamingPerformanceCollector,
   createAntigravityPerformanceCollector,
 } = require("./session-performance");
+const { readOpencodeApiRates } = require("./opencode-rate");
 const { readCodebuddyStreamTimings } = require("./codebuddy-stream-timing");
 const { computeRowCost, getModelPricingInfo } = require("./pricing");
 const { readSqliteJsonRows } = require("./sqlite-reader");
@@ -934,80 +934,61 @@ function discoverCodebuddyJsonlFiles({ home = os.homedir(), env = process.env, h
 }
 
 function computeRecentWindowRate(buckets, nowMs, windowMs = 5 * 60 * 1000) {
-  if (!Array.isArray(buckets) || buckets.length === 0) {
-    return { recentTokens: 0, recentRequests: 0, tokensPerMinute: 0, requestsPerMinute: 0 };
-  }
   const cutoff = nowMs - windowMs;
   let recentTokens = 0;
   let recentRequests = 0;
-  let earliestMs = null;
-  let latestMs = null;
-  for (const bucket of buckets) {
+  const byModel = new Map();
+  for (const bucket of buckets || []) {
     const ms = flexibleTimestampMs(bucket?.timestamp);
-    if (ms === null || ms < cutoff) continue;
-    recentTokens += finite(bucket.total_tokens);
+    if (ms === null || ms < cutoff || ms > nowMs) continue;
+    const count = finite(bucket.total_tokens);
+    recentTokens += count;
     recentRequests += finite(bucket.usage_events) || 1;
-    if (earliestMs === null || ms < earliestMs) earliestMs = ms;
-    if (latestMs === null || ms > latestMs) latestMs = ms;
+    byModel.set(bucket.model, (byModel.get(bucket.model) || 0) + count);
   }
-  if (recentTokens <= 0) {
-    return { recentTokens: 0, recentRequests: 0, tokensPerMinute: 0, requestsPerMinute: 0 };
-  }
-  const spanMinutes = Math.max(1, latestMs !== null && earliestMs !== null ? (latestMs - earliestMs) / 60_000 + 1 : windowMs / 60_000);
   return {
     recentTokens,
-    recentRequests,
-    tokensPerMinute: recentTokens / spanMinutes,
-    requestsPerMinute: recentRequests / spanMinutes,
+    byModel,
+    tokensPerMinute: recentTokens * 60_000 / windowMs,
+    requestsPerMinute: recentRequests * 60_000 / windowMs,
   };
 }
 
-function streamingPerformance(performance) {
-  if (performance?.sampled_total_tokens > 0) return performance;
-  return normalizePerformance({
-    first_response_total_ms: performance?.first_response_total_ms,
-    first_response_sample_count: performance?.first_response_sample_count,
-  });
+function streamRate(sample) {
+  // TPOT excludes the first token, whose wait is measured by TTFT.
+  if ((sample.timing && sample.timing !== "stream") || !(sample.duration_ms > 0 && sample.output_tokens > 1)) return null;
+  return (sample.output_tokens - 1) * 1000 / sample.duration_ms;
 }
 
-function summarizeRateSamples(samples, performance) {
-  const normalizedPerf = normalizePerformance(performance);
-  const validSamples = (Array.isArray(samples) ? samples : []).filter(
-    (s) => Number.isFinite(s?.tokens_per_second) && s.tokens_per_second > 0,
+function summarizeRateSamples(samples, windowTokens, windowMs) {
+  const stream = samples.filter((sample) => streamRate(sample) !== null);
+  const recent = [...stream].sort((a, b) => b.timestamp_ms - a.timestamp_ms).slice(0, 3);
+  const output = stream.reduce((sum, sample) => sum + sample.output_tokens - 1, 0);
+  const duration = stream.reduce((sum, sample) => sum + sample.duration_ms, 0);
+  const latestOutput = recent.reduce((sum, sample) => sum + sample.output_tokens - 1, 0);
+  const latestDuration = recent.reduce((sum, sample) => sum + sample.duration_ms, 0);
+  const peak = stream.reduce((max, sample) => Math.max(max, streamRate(sample)), 0);
+  const first = samples.filter((sample) => Number.isFinite(sample.first_response_ms) && sample.first_response_ms >= 0);
+  const measured = samples.filter((sample) =>
+    sample.output_tokens > 0 && (sample.end_to_end_ms > 0 || (sample.timing === "request" && sample.duration_ms > 0)),
   );
-  const avgOutputTps = normalizedPerf.estimated_tokens_per_second;
-  const durationSeconds = normalizedPerf.estimated_duration_ms > 0
-    ? normalizedPerf.estimated_duration_ms / 1000
-    : 0;
-  const totalTps = durationSeconds > 0 && normalizedPerf.sampled_total_tokens > 0
-    ? normalizedPerf.sampled_total_tokens / durationSeconds
-    : null;
-
-  let latestOutputTps = avgOutputTps;
-  let peakOutputTps = avgOutputTps;
-  if (validSamples.length > 0) {
-    const recentSlice = validSamples.sort((a, b) => (b.timestamp_ms || 0) - (a.timestamp_ms || 0)).slice(0, 3);
-    const recentOut = recentSlice.reduce((sum, s) => sum + finite(s.output_tokens), 0);
-    const recentDur = recentSlice.reduce((sum, s) => sum + finite(s.duration_ms), 0);
-    if (recentDur > 0 && recentOut > 0) {
-      latestOutputTps = recentOut / (recentDur / 1000);
-    }
-    peakOutputTps = validSamples.reduce((peak, sample) => Math.max(peak, sample.tokens_per_second), avgOutputTps || 0);
-  }
-
+  const estimates = samples.filter((sample) => sample.timing === "estimated" && sample.duration_ms > 0);
+  const endToEnd = measured.length ? measured : estimates;
+  const endToEndOutput = endToEnd.reduce((sum, sample) => sum + sample.output_tokens, 0);
+  const endToEndDuration = endToEnd.reduce((sum, sample) => sum + (sample.end_to_end_ms || sample.duration_ms), 0);
+  const round = (value) => Number(value.toFixed(1));
   return {
-    output_tokens_per_second: avgOutputTps !== null ? Number(avgOutputTps.toFixed(1)) : null,
-    latest_tokens_per_second: latestOutputTps !== null ? Number(latestOutputTps.toFixed(1)) : null,
-    peak_tokens_per_second: peakOutputTps !== null && peakOutputTps > 0 ? Number(peakOutputTps.toFixed(1)) : null,
-    total_tokens_per_second: totalTps !== null ? Number(totalTps.toFixed(1)) : null,
-    estimated_output_tokens: normalizedPerf.estimated_output_tokens,
-    estimated_duration_ms: normalizedPerf.estimated_duration_ms,
-    estimated_request_count: normalizedPerf.estimated_request_count,
-    first_response_ms:
-      normalizedPerf.first_response_ms !== null
-        ? Math.round(normalizedPerf.first_response_ms)
-        : null,
-    first_response_sample_count: normalizedPerf.first_response_sample_count,
+    output_tokens_per_second: duration > 0 ? round(output * 1000 / duration) : null,
+    latest_tokens_per_second: latestDuration > 0 ? round(latestOutput * 1000 / latestDuration) : null,
+    peak_tokens_per_second: peak > 0 ? round(peak) : null,
+    total_tokens_per_second: windowTokens > 0 ? round(windowTokens * 1000 / windowMs) : null,
+    end_to_end_tokens_per_second: endToEndDuration > 0 ? round(endToEndOutput * 1000 / endToEndDuration) : null,
+    end_to_end_estimated: measured.length === 0 && estimates.length > 0,
+    estimated_output_tokens: output + stream.length,
+    estimated_duration_ms: duration,
+    estimated_request_count: samples.filter((sample) => sample.output_tokens > 0 && (sample.duration_ms > 0 || sample.end_to_end_ms > 0)).length,
+    first_response_ms: first.length ? Math.round(first.reduce((sum, sample) => sum + sample.first_response_ms, 0) / first.length) : null,
+    first_response_sample_count: first.length,
   };
 }
 
@@ -1059,11 +1040,17 @@ async function computeProjectTokenRates({
   const recentWindowMs = Math.max(activeWindowMinutes, Number(recentWindowMinutes) || 1440) * 60 * 1000;
 
   const { buildSessionAnalytics, listSessionsForBrowser } = require("./session-analytics");
-  const baseSessionsRaw = await buildSessionAnalytics({ home, recheck: refresh });
+  const baseSessionsRaw = await buildSessionAnalytics({ home, recheck: refresh, cacheTtlMs: 5_000 });
   const browserSessions = listSessionsForBrowser(baseSessionsRaw, {
     includeBuckets: true,
     includeModelDetail: true,
+    includeRateSamples: true,
   }).sessions || [];
+  const cutoffMs = nowMs - activeWindowMs;
+  const opencodeRates = await readOpencodeApiRates(browserSessions.filter((row) =>
+    row.source === "opencode" && row.session_id &&
+    row.rate_samples.some((sample) => sample.timestamp_ms >= cutoffMs),
+  ), { home, env, cutoffMs });
 
   const { codebuddyHome, jsonlFiles: codebuddyFiles } = discoverCodebuddyJsonlFiles({ home, env });
   const sessionMetaById = readCodebuddyActiveSessions(codebuddyHome);
@@ -1149,9 +1136,14 @@ async function computeProjectTokenRates({
       ),
       total_tokens: finite(session.total_tokens ?? session.tokens?.total_tokens),
     };
-    const sessionPerformance = streamingPerformance(session.performance);
-    const rateSummary = summarizeRateSamples(session.rate_samples, sessionPerformance);
     const windowRate = computeRecentWindowRate(session.usage_buckets, nowMs, activeWindowMs);
+    const official = opencodeRates.get(session.session_hash);
+    const samples = (session.rate_samples || [])
+      .map((sample) => official?.samples.get(sample.request_id) || sample)
+      .filter((sample) => Number.isFinite(sample.timestamp_ms) && sample.timestamp_ms >= cutoffMs && sample.timestamp_ms <= nowMs);
+    const nativeRate = official?.nativeRate?.timestamp_ms >= (session.native_rate?.timestamp_ms || 0)
+      ? official.nativeRate : session.native_rate;
+    const rateSummary = summarizeRateSamples(samples, windowRate.recentTokens, activeWindowMs);
 
     const projectKey = session.project_key || deriveProjectKey(session.project_ref);
     const projectGroupKey = `${projectKey.toLowerCase()}::${String(session.project_ref || "").toLowerCase()}`;
@@ -1178,9 +1170,7 @@ async function computeProjectTokenRates({
         tool_calls: 0,
         cost_usd: 0,
         tokens: emptyTokenTotals(),
-        performance: normalizePerformance(),
         recent_tokens: 0,
-        recent_requests: 0,
         samples: [],
         sessions: [],
       };
@@ -1228,17 +1218,9 @@ async function computeProjectTokenRates({
     project.tool_calls += finite(session.tool_calls);
     project.cost_usd += finite(session.cost_usd);
     addTokenTotals(project.tokens, sessionTokens);
-    project.performance = mergePerformance(project.performance, sessionPerformance);
     project.recent_tokens += windowRate.recentTokens;
-    project.recent_requests += windowRate.recentRequests;
-
-    if (Array.isArray(session.rate_samples) && session.rate_samples.length > 0) {
-      for (const s of session.rate_samples) {
-        project.samples.push({
-          ...s,
-          source: src,
-        });
-      }
+    for (const sample of samples) {
+      project.samples.push({ ...sample, source: src });
     }
 
     project.sessions.push({
@@ -1263,6 +1245,10 @@ async function computeProjectTokenRates({
         ...rateSummary,
         tokens_per_minute: Number(windowRate.tokensPerMinute.toFixed(1)),
         requests_per_minute: Number(windowRate.requestsPerMinute.toFixed(2)),
+        ...(nativeRate?.timestamp_ms >= cutoffMs && nativeRate.timestamp_ms <= nowMs ? {
+          native_tokens_per_second: Number(nativeRate.tokens_per_second.toFixed(1)),
+          native_source: nativeRate.source,
+        } : {}),
       },
     });
 
@@ -1277,7 +1263,7 @@ async function computeProjectTokenRates({
         activeProjectsSet: new Set(),
         tokens: emptyTokenTotals(),
         cost_usd: 0,
-        performance: normalizePerformance(),
+        recent_tokens: 0,
         samples: [],
         last_active_ms: 0,
       };
@@ -1291,10 +1277,8 @@ async function computeProjectTokenRates({
     }
     addTokenTotals(providerAgg.tokens, sessionTokens);
     providerAgg.cost_usd += finite(session.cost_usd);
-    providerAgg.performance = mergePerformance(providerAgg.performance, sessionPerformance);
-    if (Array.isArray(session.rate_samples)) {
-      providerAgg.samples.push(...session.rate_samples);
-    }
+    providerAgg.recent_tokens += windowRate.recentTokens;
+    providerAgg.samples.push(...samples);
     if (activity.lastActivityMs > providerAgg.last_active_ms) {
       providerAgg.last_active_ms = activity.lastActivityMs;
     }
@@ -1321,7 +1305,8 @@ async function computeProjectTokenRates({
           total_sessions: 0,
           tokens: emptyTokenTotals(),
           cost_usd: 0,
-          performance: normalizePerformance(),
+          recent_tokens: 0,
+          samples: [],
         };
         modelAggMap.set(mKey, modelAgg);
       }
@@ -1329,7 +1314,8 @@ async function computeProjectTokenRates({
       if (activity.status === "running") modelAgg.active_sessions += 1;
       addTokenTotals(modelAgg.tokens, mRow);
       modelAgg.cost_usd += finite(mRow.cost_usd);
-      modelAgg.performance = mergePerformance(modelAgg.performance, streamingPerformance(mRow.performance));
+      modelAgg.recent_tokens += windowRate.byModel.get(mName) || 0;
+      modelAgg.samples.push(...samples.filter((sample) => sample.model === mName));
     }
   }
 
@@ -1337,17 +1323,15 @@ async function computeProjectTokenRates({
   const projects = [...projectsMap.values()]
     .map((project) => {
       project.samples.sort((a, b) => (a.timestamp_ms || 0) - (b.timestamp_ms || 0));
-      const trimmedSamples = project.samples.slice(-MAX_SAMPLES_PER_PROJECT).map((s) => ({
+      const trimmedSamples = project.samples.filter((sample) => streamRate(sample) !== null).slice(-MAX_SAMPLES_PER_PROJECT).map((s) => ({
         timestamp_ms: s.timestamp_ms,
         model: s.model,
         source: s.source,
         output_tokens: s.output_tokens,
-        total_tokens: s.total_tokens,
         duration_ms: Math.round(s.duration_ms),
-        tokens_per_second: Number(Number(s.tokens_per_second || 0).toFixed(1)),
-        total_tokens_per_second: Number(Number(s.total_tokens_per_second || 0).toFixed(1)),
+        tokens_per_second: Number(streamRate(s).toFixed(1)),
       }));
-      const rateSummary = summarizeRateSamples(project.samples, project.performance);
+      const rateSummary = summarizeRateSamples(project.samples, project.recent_tokens, activeWindowMs);
       const sortedSources = [...project.sourceTokens.entries()]
         .sort((a, b) => b[1] - a[1])
         .map(([source]) => source);
@@ -1362,12 +1346,7 @@ async function computeProjectTokenRates({
         totalInputPool > 0
           ? Number(((project.tokens.cached_input_tokens / totalInputPool) * 100).toFixed(1))
           : null;
-      const windowMinutes = Math.max(1, activeWindowMinutes);
-      const tokensPerMinute = project.recent_tokens > 0
-        ? Number((project.recent_tokens / windowMinutes).toFixed(1))
-        : project.duration_ms > 0
-          ? Number(((project.tokens.total_tokens / (project.duration_ms / 60_000))).toFixed(1))
-          : 0;
+      const tokensPerMinute = Number((project.recent_tokens * 60_000 / activeWindowMs).toFixed(1));
 
       project.sessions.sort(
         (a, b) =>
@@ -1412,7 +1391,7 @@ async function computeProjectTokenRates({
 
   const byProvider = [...providerAggMap.values()]
     .map((agg) => {
-      const rate = summarizeRateSamples(agg.samples, agg.performance);
+      const rate = summarizeRateSamples(agg.samples, agg.recent_tokens, activeWindowMs);
       const totalInputPool =
         agg.tokens.input_tokens +
         agg.tokens.cached_input_tokens +
@@ -1442,7 +1421,7 @@ async function computeProjectTokenRates({
 
   const byModel = [...modelAggMap.values()]
     .map((agg) => {
-      const rate = summarizeRateSamples([], agg.performance);
+      const rate = summarizeRateSamples(agg.samples, agg.recent_tokens, activeWindowMs);
       return {
         source: agg.source,
         model: agg.model,
@@ -1453,7 +1432,8 @@ async function computeProjectTokenRates({
         rate,
       };
     })
-    .filter((row) => row.rate.output_tokens_per_second !== null || row.active_sessions > 0)
+    .filter((row) => row.rate.output_tokens_per_second !== null || row.rate.end_to_end_tokens_per_second !== null ||
+      row.rate.total_tokens_per_second !== null || row.rate.first_response_sample_count > 0 || row.active_sessions > 0)
     .sort(
       (a, b) =>
         b.active_sessions - a.active_sessions ||
@@ -1462,15 +1442,9 @@ async function computeProjectTokenRates({
     );
 
   const runningProjects = projects.filter((p) => p.status === "running");
-  const summaryProjects = runningProjects.length > 0 ? runningProjects : projects.slice(0, 10);
-  const summaryIds = new Set(summaryProjects.map((project) => project.project_id));
-  const summaryRows = [...projectsMap.values()].filter((row) => summaryIds.has(row.project_id));
-  const activePerf = mergePerformance(...summaryRows.map((row) => row.performance));
-  const globalRate = summarizeRateSamples(summaryRows.flatMap((row) => row.samples), activePerf);
-  const combinedBurnTpm = runningProjects.reduce(
-    (sum, p) => sum + Number(p.rate.tokens_per_minute || 0),
-    0,
-  );
+  const summaryRows = [...projectsMap.values()];
+  const windowTokens = summaryRows.reduce((sum, row) => sum + row.recent_tokens, 0);
+  const globalRate = summarizeRateSamples(summaryRows.flatMap((row) => row.samples), windowTokens, activeWindowMs);
 
   return {
     generated_at: new Date(nowMs).toISOString(),
@@ -1483,9 +1457,9 @@ async function computeProjectTokenRates({
       latest_tokens_per_second: globalRate.latest_tokens_per_second,
       peak_tokens_per_second: globalRate.peak_tokens_per_second,
       total_tokens_per_second: globalRate.total_tokens_per_second,
-      tokens_per_minute: Number(combinedBurnTpm.toFixed(1)),
+      tokens_per_minute: Number((windowTokens * 60_000 / activeWindowMs).toFixed(1)),
       first_response_ms: globalRate.first_response_ms,
-      sample_count: globalRate.estimated_request_count,
+      sample_count: globalRate.first_response_sample_count,
     },
     projects,
     by_provider: byProvider,

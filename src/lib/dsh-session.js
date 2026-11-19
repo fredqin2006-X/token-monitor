@@ -588,6 +588,7 @@ function buildRow(transcript, owners) {
     ended_at: orderedTimes.length ? new Date(orderedTimes.at(-1)).toISOString() : null,
     active_ms: activeMs,
     performance: performance.performance,
+    rate_samples: performance.samples,
     provenance: {
       source: "local-session-log",
       confidence: "observed",

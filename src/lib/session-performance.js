@@ -93,9 +93,14 @@ function accumulator({ minOutput = MIN_OUTPUT, minDurationMs = MIN_DURATION_MS }
       total_tokens_per_second: (nonNegative(meta?.totalTokens) || outputTokens) / (duration / 1000),
       timestamp_ms: Number.isFinite(meta?.timestampMs) ? meta.timestampMs : null,
       first_response_ms: Number.isFinite(meta?.firstResponseMs) ? meta.firstResponseMs : null,
+      ...(meta?.timing ? { timing: meta.timing } : {}),
     });
   }
-  return { add, request, requestDuration, finish: () => ({ performance: total, byModel, samples }) };
+  function firstResponse(model, timeMs, timestampMs) {
+    add(model, { first_response_total_ms: timeMs, first_response_sample_count: 1 });
+    samples.push({ model, timestamp_ms: timestampMs, first_response_ms: timeMs, timing: "first_token" });
+  }
+  return { add, request, requestDuration, firstResponse, finish: () => ({ performance: total, byModel, samples }) };
 }
 
 function createClaudePerformanceCollector() {
@@ -138,7 +143,11 @@ function createClaudePerformanceCollector() {
         if (node.type === "attachment") { parent = node.parent; continue; }
         // A user row includes tool results. Their completion timestamp keeps
         // time spent executing the tool outside the next inference window.
-        if (node.type === "user" && !node.invalid) totals.request(timing.model, timing.output, node.timestamp, timing.end);
+        if (node.type === "user" && !node.invalid) {
+          totals.request(timing.model, timing.output, node.timestamp, timing.end, {
+            timestampMs: timing.end, timing: "estimated",
+          });
+        }
         break;
       }
     }
@@ -203,7 +212,7 @@ function createCodexPerformanceCollector() {
       const key = payload.turn_id || turnKey || obj.timestamp;
       if (!invalid && typeof raw === "number" && Number.isFinite(raw) && raw >= 0 && !seenFirstResponses.has(key)) {
         seenFirstResponses.add(key);
-        totals.add(turnModels.size === 1 ? [...turnModels][0] : null, { first_response_total_ms: raw, first_response_sample_count: 1 });
+        totals.firstResponse(turnModels.size === 1 ? [...turnModels][0] : null, raw, ms);
       }
       reset();
       return;
@@ -242,7 +251,9 @@ function createCodexPerformanceCollector() {
     const end = matches ? usageRecord.end : waitedForTools ? lastOutput : ms;
     // Missing output markers cannot distinguish response timing from a
     // snapshot or inherited context, so even a positive token delta is skipped.
-    if (!invalid && lastOutput !== null) totals.request(model, nonNegative(delta.output_tokens), start, end);
+    if (!invalid && lastOutput !== null) {
+      totals.request(model, nonNegative(delta.output_tokens), start, end, { timestampMs: end, timing: "estimated" });
+    }
     noteBoundary(ms);
     lastTokenCount = ms;
     reset();
@@ -257,10 +268,10 @@ function createCodexPerformanceCollector() {
 // shared usage reader so the browser cannot drift from the usage card).
 function createZcodePerformanceCollector() {
   const totals = accumulator();
-  function consumeUsage({ model, outputTokens, durationMs, timeToFirstTokenMs } = {}) {
-    totals.requestDuration(model, nonNegative(outputTokens), nonNegative(durationMs));
+  function consumeUsage({ model, outputTokens, durationMs, timeToFirstTokenMs, timestampMs } = {}) {
+    totals.requestDuration(model, nonNegative(outputTokens), nonNegative(durationMs), { timestampMs, timing: "request" });
     if (typeof timeToFirstTokenMs === "number" && Number.isFinite(timeToFirstTokenMs) && timeToFirstTokenMs >= 0) {
-      totals.add(null, { first_response_total_ms: timeToFirstTokenMs, first_response_sample_count: 1 });
+      totals.firstResponse(null, timeToFirstTokenMs, timestampMs);
     }
   }
   return { consumeUsage, finish: totals.finish };
@@ -272,9 +283,9 @@ function createDshPerformanceCollector() {
     // Step boundaries surround model work, before tool execution. Retry and
     // interrupted steps are filtered by the transcript reader.
     if (!Number.isFinite(start) || !Number.isFinite(end) || end < start || end - start > MAX_DURATION_MS) return;
-    totals.request(model, outputTokens, start, end);
+    totals.request(model, outputTokens, start, end, { timestampMs: end, timing: "request" });
     if (Number.isFinite(firstToken) && firstToken >= start && firstToken <= end) {
-      totals.add(model, { first_response_total_ms: firstToken - start, first_response_sample_count: 1 });
+      totals.firstResponse(model, firstToken - start, end);
     }
   }
   return { consumeUsage, finish: totals.finish };
@@ -285,15 +296,12 @@ function createStreamingPerformanceCollector() {
   function consumeUsage({ model, outputTokens, reasoningTokens, totalTokens, durationMs, firstResponseMs, timestampMs }) {
     const firstMs = Number.isFinite(firstResponseMs) && firstResponseMs >= 0 && firstResponseMs <= MAX_DURATION_MS
       ? firstResponseMs : null;
-    if (firstMs !== null) {
-      totals.add(model, { first_response_total_ms: firstMs, first_response_sample_count: 1 });
-    }
+    if (firstMs !== null) totals.firstResponse(model, firstMs, timestampMs);
     if (!Number.isFinite(durationMs) || durationMs <= 0) return;
     const output = nonNegative(outputTokens) + nonNegative(reasoningTokens);
     totals.requestDuration(model, output, durationMs, {
       timestampMs,
       totalTokens: nonNegative(totalTokens) || output,
-      firstResponseMs: firstMs,
     });
   }
   return { consumeUsage, finish: totals.finish };
