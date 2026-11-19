@@ -4,6 +4,8 @@
 
 [English](./README.md) · **简体中文** · [日本語](./README.ja.md) · [한국어](./README.ko.md) · [Deutsch](./README.de.md)
 
+**fredqin2006-X/token-monitor** · 上游 [xiufengsun/TokenTracker](https://github.com/xiufengsun/TokenTracker) · [本仓库改动](#本仓库改动)
+
 ### 跨所有 CLI，看清你到底在 AI 上花了多少钱
 
 自动采集 **47 款 AI 编码工具** 的 token 用量，全程本地聚合，用一套漂亮的 Dashboard 看真实成本与趋势。不需要云账号、不需要 API Key、不需要任何配置 —— 一条命令搞定。
@@ -36,6 +38,14 @@
 </div>
 
 ---
+
+## 本仓库改动
+
+- 新增**速率**页面，按项目、会话、工具和模型查看活跃状态、流式输出速率、上下文吞吐、缓存命中率和费用。会话列表跟随设置中的 Token 显示单位。
+- 扩展 **CodeBuddy** 和 **Antigravity** 的会话统计，记录模型、Token 用量、工具活动和运行状态。速率页使用 CodeBuddy 的首 Token 与输出结束日志，以及 Antigravity 记录的流式时长。缺少流式计时的请求仍计入用量。
+- 支持自托管面板通过同源地址访问本地 API，并加入 Windows 后台启动面板和 Cloudflare Tunnel 的脚本。
+
+下方的安装命令和发行链接指向上游发行版。本仓库的改动随当前仓库源码提供，维护流程见[维护文档](./docs/fork-maintenance.md)。
 
 ## ⚡ 快速开始
 

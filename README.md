@@ -4,6 +4,8 @@
 
 **English** · [简体中文](./README.zh-CN.md) · [日本語](./README.ja.md) · [한국어](./README.ko.md) · [Deutsch](./README.de.md)
 
+**fredqin2006-X/token-monitor** · Fork of [xiufengsun/TokenTracker](https://github.com/xiufengsun/TokenTracker) · [Fork changes](#fork-changes)
+
 ### Track every AI token — then bring your usage to life
 
 An accurate, local-first token usage and cost dashboard for **47 AI coding tools** — plus a desktop pet, **4 native widgets**, and **15 achievement tracks**. No cloud account, no API keys, no setup.
@@ -75,6 +77,14 @@ An accurate, local-first token usage and cost dashboard for **47 AI coding tools
 This project is tested with BrowserStack.
 
 ---
+
+## Fork changes
+
+- Added a **Rate** page with active and recent project sessions, model and provider breakdowns, streaming output rates, context throughput, cache hit rates, and costs. Session rows use the token display unit selected in Settings.
+- Extended session analytics for **CodeBuddy** and **Antigravity**, including model, token usage, tool activity, and activity status. The Rate page uses CodeBuddy's first-token and stream-finish logs and Antigravity's recorded streaming duration. Requests without stream timing still contribute to usage totals.
+- Added same-origin dashboard support for self-hosted access and Windows scripts for background startup of the dashboard and Cloudflare Tunnel.
+
+The distribution badges and install instructions below refer to the upstream project's releases. For changes in this fork, use this repository's source and see the [fork maintenance guide](./docs/fork-maintenance.md).
 
 ## ⚡ Quick Start
 

@@ -88,6 +88,10 @@ UTC, half-hour buckets, append-only — readers take the latest entry per `(sour
 - `TokenTrackerBar/EmbeddedServer/` is gitignored; built on demand by `TokenTrackerBar/scripts/bundle-node.sh`.
 - After editing `TokenTrackerBar/project.yml`: `(cd TokenTrackerBar && xcodegen generate && ruby scripts/patch-pbxproj-icon.rb)`.
 
+## Fork maintenance
+
+For `fredqin2006-X/token-monitor`, every completed repository change must be committed locally, pushed to the fork's `origin`, and verified on GitHub. Follow the [fork maintenance guide](docs/fork-maintenance.md) when updating from `upstream` or delivering changes to `main`.
+
 ## Release workflow
 
 **Any change under `src/` or `dashboard/` ships npm + DMG + Windows + Linux**, because `TokenTrackerBar/EmbeddedServer/` (macOS), `TokenTrackerWin/EmbeddedServer/` (Windows) and `TokenTrackerLinux/EmbeddedServer/` (Linux AppImage + `.deb` + `.rpm`) all bundle the CLI runtime and built dashboard. Bumping only `package.json` leaves desktop-app users on the stale embedded copy.
