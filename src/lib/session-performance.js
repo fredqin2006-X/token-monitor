@@ -24,11 +24,14 @@ function normalizePerformance(value) {
     ? out.estimated_output_tokens / (out.estimated_duration_ms / 1000) : null;
   out.first_response_ms = out.first_response_sample_count > 0
     ? out.first_response_total_ms / out.first_response_sample_count : null;
+  // Only streaming collectors supply this counter. Preserve the existing
+  // session analytics shape for providers that only estimate request timing.
+  if (out.sampled_total_tokens === 0) delete out.sampled_total_tokens;
   return out;
 }
 
 function mergePerformance(...values) {
-  const out = normalizePerformance();
+  const out = Object.fromEntries(SUM_FIELDS.map((field) => [field, 0]));
   for (const value of values) {
     for (const field of SUM_FIELDS) out[field] += nonNegative(value?.[field]);
   }
